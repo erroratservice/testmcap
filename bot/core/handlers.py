@@ -2,6 +2,7 @@
 Pyrofork command handlers registration
 """
 
+import logging
 from pyrogram import filters
 from pyrogram.handlers import MessageHandler
 
@@ -12,6 +13,8 @@ from bot.modules.indexfiles import indexfiles_handler
 from bot.modules.status import status_handler
 from bot.modules.settings import settings_handler
 from bot.modules.help import help_handler
+
+LOGGER = logging.getLogger(__name__)
 
 async def start_handler(client, message):
     """Welcome message handler"""
@@ -43,5 +46,8 @@ def register_handlers():
         (MessageHandler(help_handler, filters.command("help") & AuthFilters.authorized), "help"),
     ]
     
-    for handler, _ in handlers:
+    for handler, name in handlers:
         bot.add_handler(handler)
+        LOGGER.info(f"✅ Registered handler: /{name}")
+    
+    LOGGER.info("✅ All command handlers registered successfully")
