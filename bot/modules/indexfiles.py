@@ -69,38 +69,41 @@ async def create_channel_index(channel_id, message):
         content_index = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
         file_count = 0
         skipped_count = 0
+        unparsable_count = 0
 
         for i, msg in enumerate(reversed(messages)):
-            if msg.media and hasattr(msg.media, 'file_name'):
+            if msg.media and hasattr(msg.media, 'file_name') and msg.media.file_name:
                 parsed = parse_media_filename(msg.media.file_name)
                 if parsed:
                     add_to_index(content_index, parsed, msg)
                     file_count += 1
                 else:
-                    skipped_count += 1
+                    unparsable_count += 1 # Count files that couldn't be parsed
             else:
-                skipped_count += 1
+                skipped_count += 1 # Count non-media or no-filename messages
             
             await MongoDB.update_scan_progress(scan_id, i + 1)
         
         if file_count > 0:
             index_text = format_content_index(chat.title, content_index, file_count)
             
+            summary_text = (f"✅ **Indexing Complete: {chat.title}**\n\n"
+                            f"- **Indexed:** {file_count} files\n"
+                            f"- **Unparsable:** {unparsable_count} media files\n"
+                            f"- **Skipped:** {skipped_count} non-media messages")
+
             if Config.INDEX_CHANNEL_ID:
                 await TgClient.bot.send_message(Config.INDEX_CHANNEL_ID, index_text)
-                summary_text = (f"✅ **Indexing Complete: {chat.title}**\n\n"
-                                f"- **Indexed:** {file_count} files\n"
-                                f"- **Skipped:** {skipped_count} messages\n\n"
-                                f"*The index has been posted to the designated channel.*")
+                summary_text += "\n\n*The index has been posted to the designated channel.*"
                 await send_reply(message, summary_text)
             else:
-                summary_text = (f"✅ **Indexing Complete: {chat.title}**\n\n"
-                                f"- **Indexed:** {file_count} files\n"
-                                f"- **Skipped:** {skipped_count} messages\n\n"
-                                "*(Index channel not configured, so not posted anywhere).*")
+                summary_text += "\n\n*(Index channel not configured, so not posted anywhere).*`"
                 await send_reply(message, summary_text)
         else:
-            await send_reply(message, f"⚠️ No indexable content found in {chat.title}")
+            summary_text = (f"⚠️ **Indexing Complete: No parsable files found in {chat.title}**\n\n"
+                            f"- **Unparsable:** {unparsable_count} media files\n"
+                            f"- **Skipped:** {skipped_count} non-media messages")
+            await send_reply(message, summary_text)
             
     except Exception as e:
         LOGGER.error(f"Error indexing {channel_id}: {e}")
@@ -134,7 +137,7 @@ def format_content_index(channel_name, content_index, total_files):
     lines = [
         f"📺 **{channel_name} - Content Index**",
         f"📅 **Generated:** {datetime.now().strftime('%d/%m/%Y %H:%M IST')}",
-        f"📁 **Total Files:** {total_files:,}",
+        f"📁 **Total Files Indexed:** {total_files:,}",
         f"🎬 **Total Titles:** {len(content_index)}",
         "━━━━━━━━━━━━━━━━━━━━",
         ""
