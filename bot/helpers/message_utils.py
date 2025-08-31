@@ -1,16 +1,16 @@
 """
-Message utility functions for clean communication
+Pyrofork message utility functions
 """
 
 import asyncio
 import logging
-from pyrogram.errors import FloodWait, MessageNotModified
+from pyrofork.errors import FloodWait, MessageNotModified
 from bot.core.client import TgClient
 
 LOGGER = logging.getLogger(__name__)
 
 async def send_message(message, text, keyboard=None):
-    """Send message with flood control"""
+    """Send message with flood control using Pyrofork"""
     try:
         return await TgClient.bot.send_message(
             chat_id=message.chat.id,
@@ -27,7 +27,7 @@ async def send_message(message, text, keyboard=None):
         return None
 
 async def edit_message(message, text, keyboard=None):
-    """Edit message with error handling"""
+    """Edit message with error handling using Pyrofork"""
     try:
         if hasattr(message, 'edit_text'):
             return await message.edit_text(text, reply_markup=keyboard)
