@@ -4,6 +4,7 @@ Advanced index files command with a batched processing system.
 import logging
 import asyncio
 from collections import defaultdict
+from datetime import datetime
 from bot.core.client import TgClient
 from bot.core.config import Config
 from bot.helpers.message_utils import send_message, send_reply
@@ -12,6 +13,7 @@ from bot.helpers.indexing_parser import parse_media_info
 from bot.helpers.formatters import format_series_post
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
+from bot.core.tasks import ACTIVE_TASKS
 
 LOGGER = logging.getLogger(__name__)
 
@@ -39,16 +41,18 @@ async def indexfiles_handler(client, message):
         
         await trigger_status_creation(message)
         
-        asyncio.create_task(create_channel_index(channel_id, message))
+        scan_id = f"index_{channel_id}_{message.id}"
+        task = asyncio.create_task(create_channel_index(channel_id, message, scan_id))
+        ACTIVE_TASKS[scan_id] = task
             
     except Exception as e:
         LOGGER.error(f"IndexFiles handler error: {e}")
         await send_message(message, f"❌ **Error:** {e}")
 
-async def create_channel_index(channel_id, message):
+async def create_channel_index(channel_id, message, scan_id):
     """The main indexing process with batched scan and update phases."""
-    scan_id = f"index_{channel_id}_{message.id}"
     user_id = message.from_user.id
+    chat = None
     
     try:
         chat = await TgClient.user.get_chat(channel_id)
@@ -76,16 +80,14 @@ async def create_channel_index(channel_id, message):
             else:
                 skipped_count += 1
             
-            # Process in batches to avoid overwhelming APIs
             if (i + 1) % BATCH_SIZE == 0 or (i + 1) == total_messages:
                 LOGGER.info(f"Processing batch of {len(media_map)} titles...")
                 await process_batch(media_map, channel_id)
-                media_map.clear() # Clear the map for the next batch
+                media_map.clear()
                 
-                # --- MODIFIED: Add a cool-down period between batches ---
                 if (i + 1) < total_messages:
-                    LOGGER.info(f"Batch complete. Waiting for 10 seconds before the next batch...")
-                    await asyncio.sleep(10) # Wait for 10 seconds
+                    LOGGER.info(f"Batch complete. Waiting for 10 seconds...")
+                    await asyncio.sleep(10)
             
             await MongoDB.update_scan_progress(scan_id, i + 1)
 
@@ -96,18 +98,21 @@ async def create_channel_index(channel_id, message):
                         f"- **Skipped Non-Media:** {skipped_count} messages")
         await send_reply(message, summary_text)
 
+    except asyncio.CancelledError:
+        LOGGER.warning(f"Indexing task {scan_id} was cancelled by user.")
+        await send_reply(message, f"❌ Indexing for **{chat.title if chat else 'Unknown'}** was cancelled.")
     except Exception as e:
         LOGGER.error(f"Error during indexing for {channel_id}: {e}")
         await send_reply(message, f"❌ An error occurred during the index scan for channel {channel_id}.")
     finally:
         await MongoDB.end_scan(scan_id)
+        ACTIVE_TASKS.pop(scan_id, None)
 
 async def process_batch(media_map, channel_id):
     """Aggregates and updates posts for a batch of collected media."""
     for title, items in media_map.items():
         for item in items:
             await MongoDB.add_media_entry(item, item['file_size'], item['msg_id'])
-        # Update the post for this title once with all its collected data for this batch
         await update_or_create_post(title, channel_id)
 
 async def update_or_create_post(title, channel_id):
