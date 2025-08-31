@@ -47,32 +47,68 @@ async def download_media_chunk(message, chunk_size=5*1024*1024):
         return None
 
 def parse_media_filename(filename):
-    """Parse media filename for metadata"""
-    patterns = [
-        # TV Series: Show.Name.S01E01.Quality.Codec
-        r'(.+?)\.S(\d+)E(\d+)\..*?(\d{3,4}p).*?\.(x264|x265|HEVC)',
-        # Movie: Movie.Name.Year.Quality.Codec  
-        r'(.+?)\.(\d{4})\..*?(\d{3,4}p).*?\.(x264|x265|HEVC)',
-    ]
+    """
+    Parse media filename for metadata using more flexible regex.
+    Handles various separators and optional parts.
+    """
+    # Sanitize filename by replacing various separators with a space
+    clean_name = re.sub(r'[\._\-\[\]\(\)]', ' ', filename)
     
-    for pattern in patterns:
-        match = re.match(pattern, filename, re.IGNORECASE)
-        if match and 'S' in pattern and 'E' in pattern:
-            return {
-                'title': match.group(1).replace('.', ' ').strip(),
-                'season': int(match.group(2)),
-                'episode': int(match.group(3)), 
-                'quality': match.group(4),
-                'codec': match.group(5),
-                'type': 'series'
-            }
-        elif match:
-            return {
-                'title': match.group(1).replace('.', ' ').strip(),
-                'year': int(match.group(2)),
-                'quality': match.group(3),
-                'codec': match.group(4),
-                'type': 'movie'
-            }
+    # Pattern for TV Series (e.g., "Show Name S01 E01", "Show.Name.S01E01")
+    series_pattern = re.compile(
+        r'(.+?)\s+'          # Title (non-greedy)
+        r's(\d{1,2})\s*'     # Season number (S01)
+        r'e(\d{1,3})'        # Episode number (E01)
+        r'(.*)',             # Rest of the string
+        re.IGNORECASE
+    )
+    
+    # Pattern for Movies (e.g., "Movie Name 2023", "Movie.Name.(2023)")
+    movie_pattern = re.compile(
+        r'(.+?)\s+'          # Title (non-greedy)
+        r'(\d{4})'           # Year (2023)
+        r'(.*)',             # Rest of the string
+        re.IGNORECASE
+    )
+
+    series_match = series_pattern.search(clean_name)
+    if series_match:
+        title, season, episode, rest = series_match.groups()
+        quality = get_quality(rest)
+        codec = get_codec(rest)
+        return {
+            'title': title.strip(),
+            'season': int(season),
+            'episode': int(episode), 
+            'quality': quality,
+            'codec': codec,
+            'type': 'series'
+        }
+
+    movie_match = movie_pattern.search(clean_name)
+    if movie_match:
+        title, year, rest = movie_match.groups()
+        quality = get_quality(rest)
+        codec = get_codec(rest)
+        return {
+            'title': title.strip(),
+            'year': int(year),
+            'quality': quality,
+            'codec': codec,
+            'type': 'movie'
+        }
     
     return None
+
+def get_quality(text):
+    """Extracts video quality (e.g., 1080p, 720p) from text."""
+    match = re.search(r'(\d{3,4}p)', text, re.IGNORECASE)
+    return match.group(1) if match else 'Unknown'
+
+def get_codec(text):
+    """Extracts video codec (e.g., x264, x265, HEVC) from text."""
+    if re.search(r'x265|hevc', text, re.IGNORECASE):
+        return 'x265'
+    if re.search(r'x264', text, re.IGNORECASE):
+        return 'x264'
+    return 'Unknown'
