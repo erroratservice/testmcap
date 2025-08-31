@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 from pyrogram.errors import MessageNotModified, MessageDeleteForbidden
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from bot.core.config import Config
 from bot.core.client import TgClient
 from bot.core.handlers import register_handlers
@@ -47,6 +48,7 @@ async def update_status_periodically():
             was_active = is_active_now
 
             text = "📊 **Live Task Status**\n\n"
+            buttons = []
             if not active_scans:
                 text += "✅ Bot is currently idle. No active tasks."
             else:
@@ -61,13 +63,16 @@ async def update_status_periodically():
                     text += f"**{i}. {operation}:** `{channel}`\n"
                     text += f"   `{bar}`\n"
                     text += f"   `Processed: {current} / {total}`\n\n"
+                    
+                    buttons.append([InlineKeyboardButton(f"❌ Cancel Task #{i}", callback_data=f"cancel_{scan['_id']}")])
 
             class DummyMessage:
                 def __init__(self, cid, mid):
                     self.chat = type('Chat', (), {'id': cid})()
                     self.id = mid
 
-            await edit_message(DummyMessage(chat_id, message_id), text)
+            keyboard = InlineKeyboardMarkup(buttons) if buttons else None
+            await edit_message(DummyMessage(chat_id, message_id), text, keyboard)
 
         except MessageNotModified:
             pass
