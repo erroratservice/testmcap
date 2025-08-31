@@ -1,12 +1,12 @@
 """
-MediaInfo update using WZML-X WZV3 proven approach with enhanced video quality detection
+Enhanced MediaInfo with multi-chunk extraction and clean output
 """
 
 import asyncio
 import logging
 import os
+import json
 import tempfile
-from datetime import datetime
 from aiofiles import open as aiopen
 from aiofiles.os import remove as aioremove
 from pyrogram.errors import MessageNotModified
@@ -15,15 +15,16 @@ from bot.helpers.message_utils import send_message, edit_message
 
 LOGGER = logging.getLogger(__name__)
 
-# WZML-X WZV3 Configuration
-FULL_DOWNLOAD_LIMIT = 50 * 1024 * 1024  # 50MB like wzv3
-PARTIAL_CHUNK_LIMIT = 5  # 5 chunks like wzv3
-MEDIAINFO_TIMEOUT = 30  # 30 seconds timeout for MediaInfo CLI
+# Enhanced Configuration
+CHUNK_SIZE_MB = 50  # 50MB per chunk
+MAX_CHUNKS = 3      # Maximum 3 chunks (150MB total)
+FULL_DOWNLOAD_LIMIT = 200 * 1024 * 1024  # 200MB for full download fallback
+MEDIAINFO_TIMEOUT = 30
 
 async def updatemediainfo_handler(client, message):
-    """WZML-X WZV3 style handler with enhanced video quality detection"""
+    """Enhanced handler with multi-chunk extraction"""
     try:
-        LOGGER.info("🚀 Starting WZML-X WZV3 style MediaInfo processing with video quality")
+        LOGGER.info("🚀 Starting enhanced multi-chunk MediaInfo processing")
         
         channels = await get_target_channels(message)
         if not channels:
@@ -31,28 +32,30 @@ async def updatemediainfo_handler(client, message):
             return
         
         for channel_id in channels:
-            await process_channel_wzv3_style(channel_id, message)
+            await process_channel_enhanced(channel_id, message)
             
     except Exception as e:
         LOGGER.error(f"💥 Handler error: {e}", exc_info=True)
         await send_message(message, f"❌ **Error:** {e}")
 
-async def process_channel_wzv3_style(channel_id, message):
-    """Process channel using WZML-X WZV3 proven methodology"""
+async def process_channel_enhanced(channel_id, message):
+    """Process channel with enhanced multi-chunk approach"""
     try:
         chat = await TgClient.user.get_chat(channel_id)
         LOGGER.info(f"✅ Processing channel: {chat.title}")
         
         progress_msg = await send_message(message,
             f"🔄 **Processing:** {chat.title}\n"
-            f"📊 **Method:** WZML-X WZV3 Enhanced\n"
-            f"🎯 **Strategy:** 50MB Full | 5-Chunk Partial\n"
-            f"🔧 **Tool:** MediaInfo CLI\n"
-            f"📺 **Features:** Video Quality Detection\n"
+            f"📊 **Method:** Multi-Chunk Enhanced\n"
+            f"🎯 **Strategy:** 3 Chunks × 50MB = 150MB Max\n"
+            f"📝 **Output:** Clean & Essential\n"
             f"🔍 **Status:** Starting...")
         
-        stats = {"processed": 0, "errors": 0, "skipped": 0, 
-                "full_downloads": 0, "partial_downloads": 0, "total": 0, "media": 0}
+        stats = {
+            "processed": 0, "errors": 0, "skipped": 0, 
+            "chunk1_success": 0, "chunk2_success": 0, "chunk3_success": 0,
+            "full_success": 0, "total": 0, "media": 0
+        }
         
         message_count = 0
         async for msg in TgClient.user.get_chat_history(chat_id=channel_id, limit=100):
@@ -71,17 +74,20 @@ async def process_channel_wzv3_style(channel_id, message):
             LOGGER.info(f"🎯 Processing media message {msg.id}")
             
             try:
-                success, method = await process_message_wzv3_enhanced(TgClient.user, msg)
+                success, method = await process_message_enhanced(TgClient.user, msg)
                 if success:
                     stats["processed"] += 1
-                    if method == "full":
-                        stats["full_downloads"] += 1
-                    elif method == "partial":
-                        stats["partial_downloads"] += 1
+                    if method == "chunk1":
+                        stats["chunk1_success"] += 1
+                    elif method == "chunk2":
+                        stats["chunk2_success"] += 1
+                    elif method == "chunk3":
+                        stats["chunk3_success"] += 1
+                    elif method == "full":
+                        stats["full_success"] += 1
                     LOGGER.info(f"✅ Updated message {msg.id} using {method}")
                 else:
                     stats["errors"] += 1
-                    LOGGER.warning(f"⚠️ Failed to update message {msg.id}")
             except Exception as e:
                 LOGGER.error(f"❌ Error processing {msg.id}: {e}")
                 stats["errors"] += 1
@@ -92,30 +98,30 @@ async def process_channel_wzv3_style(channel_id, message):
                     f"🔄 **Processing:** {chat.title}\n"
                     f"📊 **Messages:** {stats['total']} | **Media:** {stats['media']}\n"
                     f"✅ **Updated:** {stats['processed']} | ❌ **Errors:** {stats['errors']}\n"
-                    f"📥 **Full:** {stats['full_downloads']} | 📦 **Partial:** {stats['partial_downloads']}")
+                    f"📦 **C1:** {stats['chunk1_success']} | **C2:** {stats['chunk2_success']} | **C3:** {stats['chunk3_success']} | **Full:** {stats['full_success']}")
                 await asyncio.sleep(0.5)
         
         # Final results
         final_stats = (
             f"✅ **Completed:** {chat.title}\n"
-            f"📊 **Total Messages:** {stats['total']}\n"
-            f"📁 **Media Found:** {stats['media']}\n"
+            f"📊 **Total:** {stats['total']} | **Media:** {stats['media']}\n"
             f"✅ **Updated:** {stats['processed']} files\n"
-            f"❌ **Errors:** {stats['errors']} files\n"
-            f"⏭️ **Skipped:** {stats['skipped']} files\n\n"
-            f"📥 **Full Downloads:** {stats['full_downloads']}\n"
-            f"📦 **Partial Downloads:** {stats['partial_downloads']}"
+            f"❌ **Errors:** {stats['errors']} | ⏭️ **Skipped:** {stats['skipped']}\n\n"
+            f"📦 **Chunk 1:** {stats['chunk1_success']} files\n"
+            f"📦 **Chunk 2:** {stats['chunk2_success']} files\n"
+            f"📦 **Chunk 3:** {stats['chunk3_success']} files\n"
+            f"📥 **Full:** {stats['full_success']} files"
         )
         
         await edit_message(progress_msg, final_stats)
-        LOGGER.info(f"🎉 WZML-X WZV3 enhanced processing complete: {stats['processed']} updated")
+        LOGGER.info(f"🎉 Enhanced processing complete: {stats['processed']} updated")
         
     except Exception as e:
         LOGGER.error(f"💥 Channel processing error: {e}")
 
-async def process_message_wzv3_enhanced(client, message):
-    """Process message using WZML-X WZV3 approach with enhancements"""
-    temp_file_path = None
+async def process_message_enhanced(client, message):
+    """Process message with multi-chunk strategy"""
+    temp_files = []
     try:
         # Get media info
         media = message.video or message.audio or message.document
@@ -127,373 +133,260 @@ async def process_message_wzv3_enhanced(client, message):
         
         LOGGER.info(f"📁 Processing: {filename} ({file_size/1024/1024:.1f}MB)")
         
-        # Create mediainfo directory (like wzv3)
-        mediainfo_dir = "mediainfo"
-        if not os.path.exists(mediainfo_dir):
-            os.makedirs(mediainfo_dir)
+        # Create temp directory
+        temp_dir = "temp_mediainfo"
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
         
-        # Create temp file path
-        safe_filename = filename.replace('/', '_').replace(' ', '_').replace('(', '').replace(')', '')
-        temp_file_path = os.path.join(mediainfo_dir, f"wzv3_{message.id}_{safe_filename}")
+        # Multi-chunk strategy (up to 3 chunks = 150MB total)
+        for chunk_num in range(1, MAX_CHUNKS + 1):
+            LOGGER.info(f"📦 Trying chunk {chunk_num}/3 ({CHUNK_SIZE_MB}MB)")
+            
+            # Download chunk
+            chunk_path = await download_chunk(client, message, chunk_num, temp_dir)
+            if not chunk_path:
+                continue
+            
+            temp_files.append(chunk_path)
+            
+            # Try to extract MediaInfo from accumulated chunks
+            combined_path = await combine_chunks(temp_files, temp_dir, message.id)
+            if combined_path:
+                metadata = await extract_mediainfo_from_file(combined_path)
+                if metadata:
+                    video_info, audio_tracks = parse_essential_metadata(metadata)
+                    if video_info or audio_tracks:
+                        success = await update_caption_clean(message, video_info, audio_tracks)
+                        if success:
+                            await cleanup_files([combined_path] + temp_files)
+                            return True, f"chunk{chunk_num}"
+                
+                # Clean up combined file
+                if os.path.exists(combined_path):
+                    os.remove(combined_path)
         
-        # WZML-X WZV3 download strategy
+        # Final attempt: Full download for smaller files
         if file_size <= FULL_DOWNLOAD_LIMIT:
-            LOGGER.info(f"📥 Full download (WZV3 style): {file_size/1024/1024:.1f}MB <= 50MB")
+            LOGGER.info(f"📥 Final attempt: Full download ({file_size/1024/1024:.1f}MB)")
             
-            # Full download like wzv3
+            full_path = os.path.join(temp_dir, f"full_{message.id}_{filename.replace('/', '_')}")
             try:
-                await asyncio.wait_for(
-                    message.download(temp_file_path), 
-                    timeout=300.0  # 5 minute timeout
-                )
-                method = "full"
+                await asyncio.wait_for(message.download(full_path), timeout=300.0)
+                
+                metadata = await extract_mediainfo_from_file(full_path)
+                if metadata:
+                    video_info, audio_tracks = parse_essential_metadata(metadata)
+                    if video_info or audio_tracks:
+                        success = await update_caption_clean(message, video_info, audio_tracks)
+                        temp_files.append(full_path)
+                        if success:
+                            await cleanup_files(temp_files)
+                            return True, "full"
+                
+                temp_files.append(full_path)
+                
             except asyncio.TimeoutError:
-                LOGGER.warning(f"⚠️ Full download timed out")
-                return False, "timeout"
-                
-        else:
-            LOGGER.info(f"📦 Partial download (WZV3 style): 5 chunks")
-            
-            # Partial download exactly like wzv3
-            try:
-                chunk_count = 0
-                async for chunk in client.stream_media(message, limit=PARTIAL_CHUNK_LIMIT):
-                    async with aiopen(temp_file_path, "ab") as f:
-                        await f.write(chunk)
-                    chunk_count += 1
-                
-                if chunk_count == 0:
-                    return False, "no_chunks"
-                    
-                method = "partial"
-                LOGGER.info(f"✅ Downloaded {chunk_count} chunks")
-                
-            except Exception as e:
-                LOGGER.error(f"❌ Partial download error: {e}")
-                return False, "download_error"
+                LOGGER.warning("⚠️ Full download timed out")
         
-        # Verify file exists
-        if not os.path.exists(temp_file_path):
-            return False, "file_not_found"
-        
-        downloaded_size = os.path.getsize(temp_file_path)
-        LOGGER.info(f"✅ Downloaded: {downloaded_size/1024/1024:.1f}MB")
-        
-        # Extract MediaInfo using enhanced wzv3 approach
-        success = await extract_mediainfo_enhanced(temp_file_path, message)
-        return success, method
+        await cleanup_files(temp_files)
+        return False, "failed"
         
     except Exception as e:
-        LOGGER.error(f"💥 WZV3 enhanced processing error: {e}")
+        LOGGER.error(f"💥 Enhanced processing error: {e}")
+        await cleanup_files(temp_files)
         return False, "error"
-    finally:
-        # Cleanup like wzv3
-        if temp_file_path and os.path.exists(temp_file_path):
-            try:
-                await aioremove(temp_file_path)
-                LOGGER.debug(f"🗑️ Cleaned up: {temp_file_path}")
-            except:
-                pass
 
-async def extract_mediainfo_enhanced(file_path, message):
-    """Extract MediaInfo with enhanced video quality detection"""
+async def download_chunk(client, message, chunk_num, temp_dir):
+    """Download a single chunk"""
     try:
-        LOGGER.debug(f"🔍 Running enhanced MediaInfo CLI on: {file_path}")
+        chunk_path = os.path.join(temp_dir, f"chunk_{message.id}_{chunk_num}.tmp")
         
-        # Run MediaInfo CLI with timeout
+        # Calculate chunk limit
+        chunk_size = CHUNK_SIZE_MB * 1024 * 1024  # Convert to bytes
+        max_chunks = int(chunk_size / (100 * 1024))  # 100KB per pyrogram chunk
+        
+        LOGGER.debug(f"📥 Downloading chunk {chunk_num}: max {max_chunks} pyrogram chunks")
+        
+        chunk_count = 0
+        async for chunk in client.stream_media(message, limit=max_chunks):
+            async with aiopen(chunk_path, "ab") as f:
+                await f.write(chunk)
+            chunk_count += 1
+            if chunk_count >= max_chunks:
+                break
+        
+        if chunk_count > 0 and os.path.exists(chunk_path):
+            file_size = os.path.getsize(chunk_path)
+            LOGGER.info(f"✅ Chunk {chunk_num} downloaded: {file_size/1024/1024:.1f}MB ({chunk_count} chunks)")
+            return chunk_path
+        
+        return None
+        
+    except Exception as e:
+        LOGGER.error(f"💥 Chunk {chunk_num} download error: {e}")
+        return None
+
+async def combine_chunks(chunk_paths, temp_dir, message_id):
+    """Combine multiple chunks into single file"""
+    try:
+        if not chunk_paths:
+            return None
+        
+        combined_path = os.path.join(temp_dir, f"combined_{message_id}.tmp")
+        
+        async with aiopen(combined_path, "wb") as combined_file:
+            for chunk_path in chunk_paths:
+                if os.path.exists(chunk_path):
+                    async with aiopen(chunk_path, "rb") as chunk_file:
+                        content = await chunk_file.read()
+                        await combined_file.write(content)
+        
+        if os.path.exists(combined_path):
+            total_size = os.path.getsize(combined_path)
+            LOGGER.debug(f"📦 Combined file: {total_size/1024/1024:.1f}MB from {len(chunk_paths)} chunks")
+            return combined_path
+        
+        return None
+        
+    except Exception as e:
+        LOGGER.error(f"💥 Chunk combining error: {e}")
+        return None
+
+async def extract_mediainfo_from_file(file_path):
+    """Extract MediaInfo from file"""
+    try:
         proc = await asyncio.create_subprocess_shell(
-            f'mediainfo "{file_path}"',
+            f'mediainfo "{file_path}" --Output=JSON',
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
         
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=MEDIAINFO_TIMEOUT)
-        except asyncio.TimeoutError:
-            LOGGER.warning("⚠️ MediaInfo CLI timed out")
-            proc.kill()
-            return False
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=MEDIAINFO_TIMEOUT)
         
-        if proc.returncode != 0:
-            LOGGER.warning(f"⚠️ MediaInfo returned code: {proc.returncode}")
-            if stderr:
-                LOGGER.warning(f"MediaInfo stderr: {stderr.decode()}")
+        if stdout:
+            return json.loads(stdout.decode())
         
-        if not stdout:
-            LOGGER.warning("⚠️ MediaInfo produced no output")
-            return False
-        
-        mediainfo_output = stdout.decode()
-        LOGGER.debug(f"📊 MediaInfo output length: {len(mediainfo_output)}")
-        
-        # Debug: Show first few lines of MediaInfo output
-        lines_preview = mediainfo_output.split('\n')[:10]
-        LOGGER.debug("📊 MediaInfo preview:")
-        for i, line in enumerate(lines_preview):
-            LOGGER.debug(f"  {i+1}: {line}")
-        
-        # Parse MediaInfo output with enhanced parsing
-        video_info, audio_info = parse_mediainfo_enhanced(mediainfo_output)
-        
-        if not video_info and not audio_info:
-            LOGGER.warning("⚠️ No video or audio streams found")
-            return False
-        
-        LOGGER.info(f"✅ MediaInfo extracted: Video={bool(video_info)}, Audio={bool(audio_info)}")
-        
-        # Update caption with enhanced generation
-        return await update_caption_enhanced(message, video_info, audio_info)
+        return None
         
     except Exception as e:
-        LOGGER.error(f"💥 Enhanced MediaInfo extraction error: {e}")
-        return False
+        LOGGER.debug(f"MediaInfo extraction error: {e}")
+        return None
 
-def parse_mediainfo_enhanced(mediainfo_output):
-    """Enhanced MediaInfo parsing with robust video quality extraction"""
+def parse_essential_metadata(metadata):
+    """Parse only essential metadata for clean output"""
     try:
-        LOGGER.debug("🔍 Enhanced parsing MediaInfo output")
+        tracks = metadata.get("media", {}).get("track", [])
         
-        video_info = {}
-        audio_info = {}
+        video_info = None
+        audio_tracks = []
         
-        current_section = None
-        lines = mediainfo_output.split('\n')
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
+        for track in tracks:
+            track_type = track.get("@type", "").lower()
             
-            # Detect sections - more robust detection
-            if line.startswith('Video') or (line.startswith('Video #') and '#' in line):
-                current_section = 'video'
-                LOGGER.debug("📹 Found Video section")
-                continue
-            elif line.startswith('Audio') or (line.startswith('Audio #') and '#' in line):
-                current_section = 'audio'  
-                LOGGER.debug("🎵 Found Audio section")
-                continue
-            elif any(line.startswith(x) for x in ['General', 'Text', 'Menu', 'Other', 'Image']):
-                current_section = 'other'
-                continue
-            
-            # Enhanced video parsing
-            if current_section == 'video' and ':' in line:
-                key_value = line.split(':', 1)
-                if len(key_value) == 2:
-                    key = key_value[0].strip()
-                    value = key_value[1].strip()
-                    
-                    # Extract video codec - multiple possible fields
-                    if key in ['Format', 'Codec ID', 'Codec', 'Format/Info']:
-                        if not video_info.get('codec'):
-                            # Clean codec name
-                            codec = value.split('/')[0].split('(')[0].strip()
-                            video_info['codec'] = codec
-                            LOGGER.debug(f"📹 Video codec: {codec}")
-                    
-                    # Extract width - handle various formats
-                    elif key in ['Width']:
-                        try:
-                            # Handle "1 920 pixels", "1920 px", "1920", "1920 (1920)"
-                            width_str = value.replace(' ', '').replace('pixels', '').replace('px', '')
-                            width_str = width_str.split('(')[0]  # Remove parenthetical info
-                            video_info['width'] = int(''.join(filter(str.isdigit, width_str)))
-                            LOGGER.debug(f"📹 Video width: {video_info['width']}")
-                        except Exception as e:
-                            LOGGER.debug(f"Width parse error: {e}")
-                    
-                    # Extract height - handle various formats
-                    elif key in ['Height']:
-                        try:
-                            # Handle "1 080 pixels", "1080 px", "1080", "1080 (1080)"
-                            height_str = value.replace(' ', '').replace('pixels', '').replace('px', '')
-                            height_str = height_str.split('(')[0]  # Remove parenthetical info
-                            video_info['height'] = int(''.join(filter(str.isdigit, height_str)))
-                            LOGGER.debug(f"📹 Video height: {video_info['height']}")
-                        except Exception as e:
-                            LOGGER.debug(f"Height parse error: {e}")
-                    
-                    # Alternative resolution detection from display aspect ratio
-                    elif key in ['Display aspect ratio'] and 'x' in value:
-                        try:
-                            if '(' in value and 'x' in value:
-                                # Extract resolution from "(1920x1080)" format
-                                res_part = value.split('(')[1].split(')')[0]
-                                if 'x' in res_part:
-                                    width, height = res_part.split('x')
-                                    if not video_info.get('width'):
-                                        video_info['width'] = int(width.strip())
-                                    if not video_info.get('height'):
-                                        video_info['height'] = int(height.strip())
-                        except:
-                            pass
-                    
-                    # Extract frame rate
-                    elif key in ['Frame rate']:
-                        try:
-                            fps = float(value.split()[0])
-                            video_info['fps'] = fps
-                        except:
-                            pass
-            
-            # Enhanced audio parsing
-            elif current_section == 'audio' and ':' in line:
-                key_value = line.split(':', 1)
-                if len(key_value) == 2:
-                    key = key_value[0].strip()
-                    value = key_value[1].strip()
-                    
-                    if key in ['Format', 'Codec ID', 'Codec']:
-                        if not audio_info.get('codec'):
-                            # Clean audio codec name
-                            codec = value.split('/')[0].split('(')[0].strip()
-                            audio_info['codec'] = codec
-                            LOGGER.debug(f"🎵 Audio codec: {codec}")
-                    
-                    elif key in ['Language']:
-                        audio_info['language'] = value
-                        LOGGER.debug(f"🎵 Audio language: {value}")
-                    
-                    elif key in ['Channel(s)', 'Channels']:
-                        try:
-                            # Handle "6 channels", "2", "5.1", etc.
-                            channels_str = value.split()[0]
-                            audio_info['channels'] = int(channels_str)
-                            LOGGER.debug(f"🎵 Audio channels: {channels_str}")
-                        except:
-                            pass
-                    
-                    elif key in ['Sampling rate', 'Sample rate']:
-                        try:
-                            # Handle "48.0 kHz", "44100 Hz", etc.
-                            rate_str = value.replace('kHz', '').replace('Hz', '').strip()
-                            audio_info['sample_rate'] = rate_str
-                        except:
-                            pass
+            # Extract video info (codec + resolution)
+            if track_type == "video" and not video_info:
+                codec = track.get("Format", "Unknown").split('/')[0].strip().upper()
+                
+                # Get height for quality determination
+                height = None
+                height_str = track.get("Height", "")
+                if height_str:
+                    try:
+                        height = int(''.join(filter(str.isdigit, str(height_str))))
+                    except:
+                        pass
+                
+                video_info = {
+                    "codec": codec,
+                    "height": height
+                }
+                
+            # Extract audio info (language only, filter out undefined)
+            elif track_type == "audio":
+                language = track.get("Language", "").upper()
+                
+                # Filter out undefined/unknown languages
+                if language and language not in ["UND", "UNDEFINED", "UNKNOWN", "N/A", ""]:
+                    # Standardize common language codes
+                    lang_map = {
+                        "EN": "ENG", "ENGLISH": "ENG",
+                        "HI": "HIN", "HINDI": "HIN", 
+                        "ES": "SPA", "SPANISH": "SPA",
+                        "FR": "FRA", "FRENCH": "FRA",
+                        "DE": "GER", "GERMAN": "GER"
+                    }
+                    language = lang_map.get(language, language)
+                    audio_tracks.append({"language": language})
+                else:
+                    # Count audio tracks even without language
+                    audio_tracks.append({"language": None})
         
-        # Log final extracted info
-        LOGGER.info(f"✅ Enhanced video info: {video_info}")
-        LOGGER.info(f"✅ Enhanced audio info: {audio_info}")
-        
-        return video_info if video_info else None, audio_info if audio_info else None
+        LOGGER.debug(f"📊 Parsed: video={video_info}, audio_tracks={len(audio_tracks)}")
+        return video_info, audio_tracks
         
     except Exception as e:
-        LOGGER.error(f"💥 Enhanced MediaInfo parsing error: {e}")
-        return None, None
+        LOGGER.error(f"💥 Metadata parsing error: {e}")
+        return None, []
 
-async def update_caption_enhanced(message, video_info, audio_info):
-    """Enhanced caption generation with comprehensive video quality detection"""
+async def update_caption_clean(message, video_info, audio_tracks):
+    """Update caption with clean, minimal format"""
     try:
         current_caption = message.caption or ""
         mediainfo_lines = []
         
-        # Enhanced Video line with comprehensive quality detection
-        if video_info and video_info.get('codec'):
-            codec = video_info['codec']
-            width = video_info.get('width')
-            height = video_info.get('height')
-            fps = video_info.get('fps')
+        # Clean Video line: "Video: H264 1080p"
+        if video_info and video_info.get("codec"):
+            codec = video_info["codec"]
+            height = video_info.get("height")
             
-            LOGGER.debug(f"📹 Processing video: codec={codec}, width={width}, height={height}, fps={fps}")
-            
-            # Determine resolution/quality with comprehensive detection
-            quality = None
+            # Determine quality
+            quality = ""
             if height:
-                try:
-                    h = int(height)
-                    if h >= 2160:
-                        quality = "4K"
-                    elif h >= 1440:
-                        quality = "1440p"
-                    elif h >= 1080:
-                        quality = "1080p"
-                    elif h >= 720:
-                        quality = "720p"
-                    elif h >= 576:
-                        quality = "576p"
-                    elif h >= 480:
-                        quality = "480p"
-                    elif h >= 360:
-                        quality = "360p"
-                    elif h >= 240:
-                        quality = "240p"
-                    else:
-                        quality = f"{h}p"
-                    LOGGER.info(f"📹 Detected video quality: {quality}")
-                except Exception as e:
-                    LOGGER.warning(f"⚠️ Quality detection error: {e}")
+                if height >= 2160:
+                    quality = "4K"
+                elif height >= 1440:
+                    quality = "1440p"
+                elif height >= 1080:
+                    quality = "1080p"
+                elif height >= 720:
+                    quality = "720p"
+                elif height >= 480:
+                    quality = "480p"
+                else:
+                    quality = f"{height}p"
             
-            # Build comprehensive video line
-            video_line = f"Video: {codec.upper()}"
-            
-            # Add quality/resolution
+            # Build clean video line
+            video_line = f"Video: {codec}"
             if quality:
                 video_line += f" {quality}"
-            elif width and height:
-                video_line += f" {width}x{height}"
-            
-            # Add frame rate if available
-            if fps and fps > 0:
-                if fps == int(fps):
-                    video_line += f" {int(fps)}fps"
-                else:
-                    video_line += f" {fps:.1f}fps"
             
             mediainfo_lines.append(video_line)
-            LOGGER.info(f"📹 Generated enhanced video line: {video_line}")
+            LOGGER.info(f"📹 Clean video line: {video_line}")
         
-        # Enhanced Audio line with comprehensive info
-        if audio_info and audio_info.get('codec'):
-            codec = audio_info['codec']
-            language = audio_info.get('language', '').upper()
-            channels = audio_info.get('channels')
-            sample_rate = audio_info.get('sample_rate')
+        # Clean Audio line: "Audio: 2 (ENG, SPA)" or "Audio: 1"
+        if audio_tracks:
+            track_count = len(audio_tracks)
             
-            # Build comprehensive audio line
-            audio_line = f"Audio: {codec.upper()}"
+            # Get unique languages (filter out None)
+            languages = []
+            for track in audio_tracks:
+                lang = track.get("language")
+                if lang and lang not in languages:
+                    languages.append(lang)
             
-            # Add channel configuration
-            if channels:
-                if channels == 1:
-                    audio_line += " Mono"
-                elif channels == 2:
-                    audio_line += " Stereo"
-                elif channels == 6:
-                    audio_line += " 5.1"
-                elif channels == 8:
-                    audio_line += " 7.1"
-                else:
-                    audio_line += f" {channels}ch"
-            
-            # Add language if available and meaningful
-            if language and language not in ['UNKNOWN', 'UND', 'UNDEFINED', 'N/A', 'NULL', '']:
-                # Standardize language codes
-                lang_map = {
-                    'EN': 'ENG', 'ENGLISH': 'ENG',
-                    'HI': 'HIN', 'HINDI': 'HIN', 
-                    'ES': 'SPA', 'SPANISH': 'SPA',
-                    'FR': 'FRA', 'FRENCH': 'FRA',
-                    'DE': 'GER', 'GERMAN': 'GER',
-                    'IT': 'ITA', 'ITALIAN': 'ITA',
-                    'JA': 'JPN', 'JAPANESE': 'JPN',
-                    'KO': 'KOR', 'KOREAN': 'KOR',
-                    'ZH': 'CHI', 'CHINESE': 'CHI',
-                    'AR': 'ARA', 'ARABIC': 'ARA',
-                    'RU': 'RUS', 'RUSSIAN': 'RUS',
-                    'PT': 'POR', 'PORTUGUESE': 'POR'
-                }
-                display_lang = lang_map.get(language, language)
-                audio_line += f" ({display_lang})"
+            # Build clean audio line
+            audio_line = f"Audio: {track_count}"
+            if languages:
+                audio_line += f" ({', '.join(languages)})"
             
             mediainfo_lines.append(audio_line)
-            LOGGER.info(f"🎵 Generated enhanced audio line: {audio_line}")
+            LOGGER.info(f"🎵 Clean audio line: {audio_line}")
         
         if not mediainfo_lines:
             LOGGER.warning("⚠️ No MediaInfo lines generated")
             return False
         
-        # Create enhanced caption
+        # Create clean enhanced caption
         enhanced = current_caption.strip()
         mediainfo_section = "\n\n" + "\n".join(mediainfo_lines)
         enhanced_caption = enhanced + mediainfo_section
@@ -506,9 +399,7 @@ async def update_caption_enhanced(message, video_info, audio_info):
             else:
                 enhanced_caption = mediainfo_section
         
-        LOGGER.debug(f"📝 Final enhanced caption: {enhanced_caption}")
-        
-        # Update caption if changed
+        # Update if changed
         if current_caption == enhanced_caption:
             LOGGER.warning("⚠️ Caption unchanged")
             return False
@@ -519,7 +410,7 @@ async def update_caption_enhanced(message, video_info, audio_info):
                 message_id=message.id,
                 caption=enhanced_caption
             )
-            LOGGER.info("✅ Enhanced caption updated successfully with video quality")
+            LOGGER.info("✅ Clean caption updated successfully")
             return True
             
         except MessageNotModified:
@@ -527,21 +418,28 @@ async def update_caption_enhanced(message, video_info, audio_info):
             return False
         
     except Exception as e:
-        LOGGER.error(f"💥 Enhanced caption update error: {e}")
+        LOGGER.error(f"💥 Clean caption update error: {e}")
         return False
+
+async def cleanup_files(file_paths):
+    """Clean up temporary files"""
+    for file_path in file_paths:
+        try:
+            if file_path and os.path.exists(file_path):
+                await aioremove(file_path)
+                LOGGER.debug(f"🗑️ Cleaned up: {file_path}")
+        except Exception as e:
+            LOGGER.debug(f"Cleanup warning: {e}")
 
 # Helper functions
 async def has_media(msg):
-    """Check if message has media"""
     return bool(msg.video or msg.audio or msg.document)
 
 async def already_has_mediainfo(msg):
-    """Check if message already has MediaInfo in caption"""
     caption = msg.caption or ""
     return "Video:" in caption and "Audio:" in caption
 
 async def get_target_channels(message):
-    """Extract channel IDs from command"""
     try:
         if len(message.command) > 1:
             channel_id = message.command[1]
@@ -550,8 +448,7 @@ async def get_target_channels(message):
             elif channel_id.isdigit():
                 return [int(f"-100{channel_id}")]
             else:
-                return [channel_id]  # Username
+                return [channel_id]
         return []
-    except Exception as e:
-        LOGGER.error(f"Channel parsing error: {e}")
+    except:
         return []
