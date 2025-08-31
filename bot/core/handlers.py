@@ -1,5 +1,5 @@
 """
-Command handlers registration for Media Indexing Bot
+Clean command handlers registration
 """
 
 import logging
@@ -29,17 +29,14 @@ async def start_handler(client, message):
 • `/settings` - Configure preferences
 • `/help` - Detailed help
 
-👨‍💻 **Usage:** Use commands with channel ID or reply to channel list file
-
 🚀 **Ready to index your media content!**"""
     
     await message.reply(welcome_text)
 
 def register_handlers():
-    """Register all command handlers with the bot"""
+    """Register all command handlers"""
     bot = TgClient.bot
     
-    # Core command handlers with authorization
     handlers = [
         (MessageHandler(start_handler, filters.command("start") & AuthFilters.authorized), "start"),
         (MessageHandler(updatemediainfo_handler, filters.command("updatemediainfo") & AuthFilters.authorized), "updatemediainfo"),
