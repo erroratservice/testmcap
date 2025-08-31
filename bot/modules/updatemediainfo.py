@@ -1,5 +1,5 @@
 """
-MediaInfo update with head+tail chunk download and metadata merging
+MediaInfo update with optimized head+tail strategy (no hanging)
 """
 
 import asyncio
@@ -17,9 +17,9 @@ LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 
 async def updatemediainfo_handler(client, message):
-    """Handler with head+tail metadata merging strategy"""
+    """Handler with optimized head+tail strategy"""
     try:
-        LOGGER.info("🚀 Starting updatemediainfo with head+tail merge strategy")
+        LOGGER.info("🚀 Starting updatemediainfo with optimized head+tail strategy")
         
         channels = await get_target_channels(message)
         if not channels:
@@ -28,14 +28,14 @@ async def updatemediainfo_handler(client, message):
             return
         
         for channel_id in channels:
-            await process_channel_with_head_tail_merge(channel_id, message)
+            await process_channel_optimized(channel_id, message)
             
     except Exception as e:
         LOGGER.error(f"💥 Handler error: {e}", exc_info=True)
         await send_message(message, f"❌ **Error:** {e}")
 
-async def process_channel_with_head_tail_merge(channel_id, message):
-    """Process channel with head+tail metadata merging"""
+async def process_channel_optimized(channel_id, message):
+    """Process channel with optimized approach"""
     try:
         # Access channel
         chat = await TgClient.user.get_chat(channel_id)
@@ -43,16 +43,16 @@ async def process_channel_with_head_tail_merge(channel_id, message):
         
         progress_msg = await send_message(message,
             f"🔄 **Processing:** {chat.title}\n"
-            f"📊 **Method:** Head+Tail MediaInfo Merge\n"
-            f"🎯 **Strategy:** 10MB Head + 5MB Tail → Merge Metadata\n"
+            f"📊 **Method:** Optimized Head+Tail Strategy\n"
+            f"🎯 **Fix:** No hanging on large files\n"
             f"🔍 **Status:** Scanning messages...")
         
         processed = 0
         errors = 0
         skipped = 0
-        head_only_success = 0
-        tail_success = 0
-        merge_success = 0
+        head_success = 0
+        large_head_success = 0
+        full_success = 0
         total_messages = 0
         media_found = 0
         
@@ -75,15 +75,15 @@ async def process_channel_with_head_tail_merge(channel_id, message):
             LOGGER.info(f"🎯 Processing media message {msg.id}")
             
             try:
-                success, method = await process_with_head_tail_merge(TgClient.user, msg)
+                success, method = await process_with_optimized_strategy(TgClient.user, msg)
                 if success:
                     processed += 1
-                    if method == "head_only":
-                        head_only_success += 1
-                    elif method == "tail":
-                        tail_success += 1
-                    elif method == "merge":
-                        merge_success += 1
+                    if method == "head":
+                        head_success += 1
+                    elif method == "large_head":
+                        large_head_success += 1
+                    elif method == "full":
+                        full_success += 1
                     LOGGER.info(f"✅ Updated message {msg.id} using {method}")
                 else:
                     errors += 1
@@ -98,7 +98,7 @@ async def process_channel_with_head_tail_merge(channel_id, message):
                     f"🔄 **Processing:** {chat.title}\n"
                     f"📊 **Messages:** {total_messages} | **Media:** {media_found}\n"
                     f"✅ **Updated:** {processed} | ❌ **Errors:** {errors}\n"
-                    f"🎯 **Head:** {head_only_success} | 🎯 **Tail:** {tail_success} | 🔗 **Merge:** {merge_success}")
+                    f"🎯 **Head:** {head_success} | 📈 **Large Head:** {large_head_success} | 📥 **Full:** {full_success}")
                 await asyncio.sleep(0.5)
         
         # Final results
@@ -109,9 +109,9 @@ async def process_channel_with_head_tail_merge(channel_id, message):
             f"✅ **Updated:** {processed} files\n"
             f"❌ **Errors:** {errors} files\n"
             f"⏭️ **Skipped:** {skipped} files\n\n"
-            f"🎯 **Head Only:** {head_only_success}\n"
-            f"🎯 **Tail Success:** {tail_success}\n"
-            f"🔗 **Merge Success:** {merge_success}"
+            f"🎯 **Head Success:** {head_success}\n"
+            f"📈 **Large Head Success:** {large_head_success}\n"
+            f"📥 **Full Success:** {full_success}"
         )
         
         await edit_message(progress_msg, final_stats)
@@ -120,8 +120,8 @@ async def process_channel_with_head_tail_merge(channel_id, message):
         LOGGER.error(f"💥 Channel processing error: {e}")
         await send_message(message, f"❌ **Error:** {str(e)}")
 
-async def process_with_head_tail_merge(client, message):
-    """Process message with head+tail merge strategy"""
+async def process_with_optimized_strategy(client, message):
+    """Process with optimized strategy - no hanging tail downloads"""
     try:
         media = None
         if message.video:
@@ -138,83 +138,77 @@ async def process_with_head_tail_merge(client, message):
         
         LOGGER.info(f"📁 Processing: {filename} ({size/1024/1024:.1f}MB)")
         
-        # Strategy 1: Try head chunk first (10MB)
-        LOGGER.info("🎯 Strategy 1: Trying 10MB head chunk")
-        head_metadata = await extract_metadata_from_chunk(client, message, filename, "head", 10)
+        # Strategy 1: Try 15MB head chunk (increased from 10MB)
+        LOGGER.info("🎯 Strategy 1: Trying 15MB head chunk")
+        success = await try_head_chunk_processing(client, message, filename, 15)
+        if success:
+            return True, "head"
         
-        if head_metadata and has_video_audio_streams(head_metadata):
-            LOGGER.info("✅ Head chunk has complete metadata")
-            success = await update_caption_with_metadata(message, head_metadata)
+        # Strategy 2: Try 50MB head chunk for stubborn files (replaces problematic tail)
+        if size > 100 * 1024 * 1024:  # Only for files > 100MB
+            LOGGER.info("🎯 Strategy 2: Trying 50MB large head chunk")
+            success = await try_head_chunk_processing(client, message, filename, 50)
             if success:
-                return True, "head_only"
+                return True, "large_head"
         
-        # Strategy 2: Try tail chunk (5MB)
-        LOGGER.info("🎯 Strategy 2: Trying 5MB tail chunk")  
-        tail_metadata = await extract_metadata_from_chunk(client, message, filename, "tail", 5, size)
-        
-        if tail_metadata and has_video_audio_streams(tail_metadata):
-            LOGGER.info("✅ Tail chunk has complete metadata")
-            success = await update_caption_with_metadata(message, tail_metadata)
+        # Strategy 3: Full download for smaller files (< 500MB)
+        if size <= 500 * 1024 * 1024:
+            LOGGER.info("🎯 Strategy 3: Full download for complete metadata")
+            success = await try_full_download_processing(client, message, filename)
             if success:
-                return True, "tail"
-        
-        # Strategy 3: Merge head + tail metadata
-        LOGGER.info("🎯 Strategy 3: Merging head + tail metadata")
-        merged_metadata = merge_mediainfo_metadata(head_metadata, tail_metadata)
-        
-        if merged_metadata and has_video_audio_streams(merged_metadata):
-            LOGGER.info("✅ Merged metadata has complete streams")
-            success = await update_caption_with_metadata(message, merged_metadata)
-            if success:
-                return True, "merge"
+                return True, "full"
+        else:
+            LOGGER.warning(f"⚠️ File too large for full download: {size/1024/1024:.1f}MB")
         
         LOGGER.warning("⚠️ All strategies failed - no usable metadata found")
         return False, "failed"
         
     except Exception as e:
-        LOGGER.error(f"💥 Head+tail processing error: {e}")
+        LOGGER.error(f"💥 Optimized processing error: {e}")
         return False, "error"
 
-async def extract_metadata_from_chunk(client, message, filename, chunk_type, size_mb, total_size=None):
-    """Extract MediaInfo metadata from head or tail chunk"""
+async def try_head_chunk_processing(client, message, filename, size_mb):
+    """Try processing with head chunk of specified size"""
     download_path = None
     try:
-        LOGGER.debug(f"📥 Downloading {size_mb}MB {chunk_type} chunk")
+        LOGGER.debug(f"📥 Downloading {size_mb}MB head chunk")
         
         # Create temp file
-        rand_str = f"{chunk_type}_{message.id}"
+        rand_str = f"head_{size_mb}_{message.id}"
         download_path = f"/tmp/{rand_str}_{filename.replace('/', '_')}"
         
-        if chunk_type == "head":
-            # Download head chunk
-            success = await download_head_chunk(client, message, download_path, size_mb)
-        else:
-            # Download tail chunk
-            success = await download_tail_chunk(client, message, download_path, size_mb, total_size)
+        # Download head chunk with timeout
+        chunk_size = 100 * 1024  # 100KB per chunk
+        max_chunks = int((size_mb * 1024 * 1024) / chunk_size)
         
-        if not success:
-            LOGGER.warning(f"⚠️ {chunk_type} chunk download failed")
-            return None
+        chunk_count = 0
         
-        # Extract MediaInfo
-        mediainfo_json_text = await async_subprocess(f"mediainfo '{download_path}' --Output=JSON")
-        
-        if not mediainfo_json_text:
-            LOGGER.warning(f"⚠️ MediaInfo produced no output for {chunk_type} chunk")
-            return None
-        
+        # Add timeout for download
         try:
-            metadata = json.loads(mediainfo_json_text)
-            tracks = metadata.get("media", {}).get("track", [])
-            LOGGER.debug(f"📊 {chunk_type} chunk: {len(tracks)} tracks found")
-            return metadata
-        except json.JSONDecodeError as e:
-            LOGGER.warning(f"⚠️ MediaInfo JSON parse failed for {chunk_type} chunk: {e}")
-            return None
+            async with asyncio.timeout(120):  # 2 minute timeout
+                async for chunk in client.stream_media(message, limit=max_chunks):
+                    with open(download_path, "ab") as f:
+                        f.write(chunk)
+                    chunk_count += 1
+                    if chunk_count >= max_chunks:
+                        break
+        except asyncio.TimeoutError:
+            LOGGER.warning(f"⚠️ {size_mb}MB head download timed out")
+            return False
+        
+        if chunk_count == 0:
+            LOGGER.warning(f"⚠️ No chunks downloaded for {size_mb}MB head")
+            return False
+        
+        file_size = os.path.getsize(download_path) if os.path.exists(download_path) else 0
+        LOGGER.debug(f"✅ Head chunk downloaded: {file_size/1024/1024:.1f}MB")
+        
+        # Process with MediaInfo
+        return await process_file_with_mediainfo_optimized(download_path, message)
         
     except Exception as e:
-        LOGGER.error(f"💥 {chunk_type} chunk processing error: {e}")
-        return None
+        LOGGER.error(f"💥 Head chunk processing error ({size_mb}MB): {e}")
+        return False
     finally:
         if download_path and os.path.exists(download_path):
             try:
@@ -222,176 +216,82 @@ async def extract_metadata_from_chunk(client, message, filename, chunk_type, siz
             except:
                 pass
 
-async def download_head_chunk(client, message, download_path, size_mb):
-    """Download head chunk from beginning of file"""
+async def try_full_download_processing(client, message, filename):
+    """Try processing with full download"""
+    download_path = None
     try:
-        chunk_size = 100 * 1024  # 100KB per chunk
-        max_chunks = int((size_mb * 1024 * 1024) / chunk_size)
+        LOGGER.debug("📥 Starting full download")
         
-        chunk_count = 0
-        async for chunk in client.stream_media(message, limit=max_chunks):
-            with open(download_path, "ab") as f:
-                f.write(chunk)
-            chunk_count += 1
-            if chunk_count >= max_chunks:
-                break
+        rand_str = f"full_{message.id}"
+        download_path = f"/tmp/{rand_str}_{filename.replace('/', '_')}"
         
-        if chunk_count > 0 and os.path.exists(download_path):
-            file_size = os.path.getsize(download_path)
-            LOGGER.debug(f"✅ Head chunk downloaded: {file_size/1024/1024:.1f}MB")
-            return True
-        
-        return False
-        
-    except Exception as e:
-        LOGGER.error(f"💥 Head chunk download error: {e}")
-        return False
-
-async def download_tail_chunk(client, message, download_path, size_mb, total_size):
-    """Download tail chunk from end of file"""
-    try:
-        chunk_size = 100 * 1024  # 100KB per chunk
-        tail_size = size_mb * 1024 * 1024
-        
-        if total_size <= tail_size:
-            # File is smaller than tail size, download all
-            return await download_head_chunk(client, message, download_path, total_size // (1024 * 1024) + 1)
-        
-        # Calculate chunks to skip for tail
-        start_offset = total_size - tail_size
-        chunks_to_skip = int(start_offset / chunk_size)
-        chunks_to_download = int(tail_size / chunk_size)
-        
-        LOGGER.debug(f"📊 Tail: skip {chunks_to_skip}, download {chunks_to_download}")
-        
-        chunk_count = 0
-        downloaded_count = 0
-        
-        async for chunk in client.stream_media(message, limit=chunks_to_skip + chunks_to_download):
-            chunk_count += 1
-            
-            # Skip chunks until tail section
-            if chunk_count <= chunks_to_skip:
-                continue
-            
-            # Download tail chunks
-            with open(download_path, "ab") as f:
-                f.write(chunk)
-            downloaded_count += 1
-            
-            if downloaded_count >= chunks_to_download:
-                break
-        
-        if downloaded_count > 0 and os.path.exists(download_path):
-            file_size = os.path.getsize(download_path)
-            LOGGER.debug(f"✅ Tail chunk downloaded: {file_size/1024/1024:.1f}MB")
-            return True
-        
-        return False
-        
-    except Exception as e:
-        LOGGER.error(f"💥 Tail chunk download error: {e}")
-        return False
-
-def merge_mediainfo_metadata(head_metadata, tail_metadata):
-    """Intelligently merge MediaInfo metadata from head and tail chunks"""
-    try:
-        LOGGER.debug("🔗 Merging head and tail metadata")
-        
-        if not head_metadata and not tail_metadata:
-            return None
-        
-        if not head_metadata:
-            LOGGER.debug("📊 Using tail metadata only")
-            return tail_metadata
-        
-        if not tail_metadata:
-            LOGGER.debug("📊 Using head metadata only") 
-            return head_metadata
-        
-        # Start with head metadata as base
-        merged = json.loads(json.dumps(head_metadata))  # Deep copy
-        
-        head_tracks = head_metadata.get("media", {}).get("track", [])
-        tail_tracks = tail_metadata.get("media", {}).get("track", [])
-        
-        LOGGER.debug(f"📊 Head tracks: {len(head_tracks)}, Tail tracks: {len(tail_tracks)}")
-        
-        # Merge tracks intelligently
-        merged_tracks = []
-        added_stream_types = set()
-        
-        # Add all head tracks
-        for track in head_tracks:
-            track_type = track.get("@type", "").lower()
-            merged_tracks.append(track)
-            added_stream_types.add(track_type)
-        
-        # Add missing stream types from tail
-        for track in tail_tracks:
-            track_type = track.get("@type", "").lower()
-            
-            # Add if stream type not already present
-            if track_type not in added_stream_types:
-                merged_tracks.append(track)
-                added_stream_types.add(track_type)
-                LOGGER.debug(f"📊 Added {track_type} track from tail")
-            else:
-                # Update existing track with missing fields from tail
-                for existing_track in merged_tracks:
-                    if existing_track.get("@type", "").lower() == track_type:
-                        # Merge missing fields
-                        for key, value in track.items():
-                            if key not in existing_track or not existing_track[key]:
-                                existing_track[key] = value
-                                LOGGER.debug(f"📊 Updated {key} in {track_type} track from tail")
-        
-        # Update merged metadata
-        if "media" not in merged:
-            merged["media"] = {}
-        merged["media"]["track"] = merged_tracks
-        
-        LOGGER.info(f"✅ Merged metadata: {len(merged_tracks)} tracks, types: {list(added_stream_types)}")
-        return merged
-        
-    except Exception as e:
-        LOGGER.error(f"💥 Metadata merge error: {e}")
-        return head_metadata or tail_metadata
-
-def has_video_audio_streams(metadata):
-    """Check if metadata contains actual video or audio streams"""
-    try:
-        if not metadata:
+        # Full download with timeout
+        try:
+            async with asyncio.timeout(300):  # 5 minute timeout
+                await message.download(download_path)
+        except asyncio.TimeoutError:
+            LOGGER.warning("⚠️ Full download timed out")
             return False
         
-        tracks = metadata.get("media", {}).get("track", [])
+        if not os.path.exists(download_path):
+            LOGGER.warning("⚠️ Full download failed - file not found")
+            return False
         
-        has_video = False
-        has_audio = False
+        file_size = os.path.getsize(download_path)
+        LOGGER.debug(f"✅ Full download completed: {file_size/1024/1024:.1f}MB")
         
-        for track in tracks:
-            track_type = track.get("@type", "").lower()
-            if track_type == "video":
-                has_video = True
-            elif track_type == "audio":
-                has_audio = True
-        
-        result = has_video or has_audio
-        LOGGER.debug(f"📊 Stream check: Video={has_video}, Audio={has_audio}, HasStreams={result}")
-        return result
+        # Process with MediaInfo
+        return await process_file_with_mediainfo_optimized(download_path, message)
         
     except Exception as e:
-        LOGGER.error(f"💥 Stream check error: {e}")
+        LOGGER.error(f"💥 Full download processing error: {e}")
         return False
+    finally:
+        if download_path and os.path.exists(download_path):
+            try:
+                os.remove(download_path)
+            except:
+                pass
 
-async def update_caption_with_metadata(message, metadata):
-    """Update caption with MediaInfo metadata"""
+async def process_file_with_mediainfo_optimized(file_path, message):
+    """Process file with MediaInfo and update caption"""
     try:
-        caption_data = extract_caption_metadata(metadata)
+        # Run MediaInfo with timeout
+        try:
+            async with asyncio.timeout(30):  # 30 second timeout
+                mediainfo_json_text = await async_subprocess(f"mediainfo '{file_path}' --Output=JSON")
+        except asyncio.TimeoutError:
+            LOGGER.warning("⚠️ MediaInfo CLI timed out")
+            return False
+        
+        if not mediainfo_json_text:
+            LOGGER.warning("⚠️ MediaInfo produced no output")
+            return False
+        
+        # Parse JSON
+        try:
+            mediainfo_json = json.loads(mediainfo_json_text)
+        except json.JSONDecodeError as e:
+            LOGGER.warning(f"⚠️ MediaInfo JSON parse failed: {e}")
+            return False
+        
+        # Extract metadata
+        caption_data = extract_caption_metadata(mediainfo_json)
         if not caption_data:
             LOGGER.warning("⚠️ No caption data extracted")
             return False
         
+        # Check for actual streams
+        video = caption_data.get("video")
+        audio = caption_data.get("audio", [])
+        
+        if not video and not audio:
+            LOGGER.warning("⚠️ No video or audio streams found")
+            return False
+        
+        LOGGER.info(f"✅ Found streams: Video={bool(video)}, Audio={len(audio)}")
+        
+        # Generate caption
         current_caption = message.caption or ""
         enhanced_caption = generate_mediainfo_caption(current_caption, caption_data)
         
@@ -399,14 +299,15 @@ async def update_caption_with_metadata(message, metadata):
             LOGGER.warning("⚠️ No caption changes generated")
             return False
         
+        # Update caption
         return await safe_edit_caption(message, current_caption, enhanced_caption)
         
     except Exception as e:
-        LOGGER.error(f"💥 Caption update error: {e}")
+        LOGGER.error(f"💥 MediaInfo processing error: {e}")
         return False
 
 async def async_subprocess(cmd):
-    """Run subprocess command"""
+    """Run subprocess command with timeout"""
     try:
         proc = await asyncio.create_subprocess_shell(
             cmd,
@@ -531,7 +432,7 @@ def generate_mediainfo_caption(original_caption, metadata):
         LOGGER.error(f"Caption generation error: {e}")
         return original_caption or ""
 
-# Helper functions
+# Helper functions (same as before)
 async def has_media(msg):
     return bool(msg.video or msg.audio or msg.document)
 
