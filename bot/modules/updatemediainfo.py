@@ -1,5 +1,5 @@
 """
-Enhanced MediaInfo with multi-chunk extraction and clean output
+High-performance, concurrent MediaInfo processing module.
 """
 
 import asyncio
@@ -10,6 +10,7 @@ from aiofiles import open as aiopen
 from aiofiles.os import remove as aioremove
 from pyrogram.errors import MessageNotModified
 from bot.core.client import TgClient
+from bot.core.config import Config
 from bot.helpers.message_utils import send_message, send_reply
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
@@ -23,17 +24,17 @@ MEDIAINFO_TIMEOUT = 30
 FFPROBE_TIMEOUT = 60
 
 async def updatemediainfo_handler(client, message):
-    """Handler with database-driven force-processing."""
+    """Handler that initiates a concurrent scan."""
     try:
         if MongoDB.db is None:
-            await send_message(message, "❌ **Error:** Database is not connected. This feature is disabled.")
+            await send_message(message, "❌ **Error:** Database is not connected.")
             return
 
         is_force_run = len(message.command) > 2 and message.command[2] == '-f'
         
         channels = await get_target_channels(message)
         if not channels:
-            await send_message(message, "❌ **Usage:**\n• `/updatemediainfo -1001234567890`\n• `/updatemediainfo -1001234567890 -f`")
+            await send_message(message, "❌ **Usage:** `/updatemediainfo -100123... [-f]`")
             return
 
         channel_id = channels[0]
@@ -41,18 +42,25 @@ async def updatemediainfo_handler(client, message):
         await trigger_status_creation(message)
 
         if is_force_run:
-            LOGGER.info(f"🚀 Starting FORCE processing for channel {channel_id}")
-            asyncio.create_task(force_process_channel(channel_id, message))
+            LOGGER.info(f"🚀 Starting CONCURRENT FORCE processing for channel {channel_id}")
+            asyncio.create_task(force_process_channel_concurrently(channel_id, message))
         else:
-            LOGGER.info(f"🚀 Starting standard scan for channel {channel_id}")
-            asyncio.create_task(process_channel_enhanced(channel_id, message))
+            LOGGER.info(f"🚀 Starting CONCURRENT standard scan for channel {channel_id}")
+            asyncio.create_task(process_channel_concurrently(channel_id, message))
             
     except Exception as e:
         LOGGER.error(f"💥 Handler error in updatemediainfo: {e}")
         await send_message(message, f"❌ **Error:** {e}")
 
-async def process_channel_enhanced(channel_id, message):
-    """Process channel, track scan in DB, and save failed IDs."""
+
+async def progress_updater(scan_id, stats, stop_event):
+    """A sub-task that updates the database every 10 seconds."""
+    while not stop_event.is_set():
+        await MongoDB.update_scan_progress(scan_id, stats["processed"] + stats["errors"] + stats["skipped"])
+        await asyncio.sleep(10)
+
+async def process_channel_concurrently(channel_id, message):
+    """Processes a channel by running multiple file tasks at the same time."""
     scan_id = f"scan_{channel_id}_{message.id}"
     user_id = message.from_user.id
     
@@ -65,36 +73,41 @@ async def process_channel_enhanced(channel_id, message):
         
         await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "MediaInfo Scan")
 
-        stats = {
-            "processed": 0, "errors": 0, "skipped": 0, 
-            "total": 0
-        }
-        
+        stats = {"processed": 0, "errors": 0, "skipped": 0}
         failed_ids_internal = []
+        
+        semaphore = asyncio.Semaphore(Config.MAX_CONCURRENT_TASKS)
+        stop_event = asyncio.Event()
 
-        for i, msg in enumerate(reversed(messages)):
-            stats["total"] += 1
-            
-            if not await has_media(msg) or await already_has_mediainfo(msg):
-                stats["skipped"] += 1
-                await MongoDB.update_scan_progress(scan_id, stats["total"])
-                continue
-            
-            LOGGER.info(f"🎯 Processing media message {msg.id} in {chat.title}")
+        # Start the periodic progress updater
+        updater_task = asyncio.create_task(progress_updater(scan_id, stats, stop_event))
 
-            try:
-                success, method = await process_message_enhanced(TgClient.user, msg)
-                if success:
-                    stats["processed"] += 1
-                else:
+        async def worker(msg):
+            async with semaphore:
+                if not await has_media(msg) or await already_has_mediainfo(msg):
+                    stats["skipped"] += 1
+                    return
+
+                LOGGER.info(f"🎯 Processing media message {msg.id} in {chat.title}")
+                try:
+                    success, _ = await process_message_enhanced(TgClient.user, msg)
+                    if success:
+                        stats["processed"] += 1
+                    else:
+                        stats["errors"] += 1
+                        failed_ids_internal.append(msg.id)
+                except Exception as e:
+                    LOGGER.error(f"❌ Worker error on message {msg.id}: {e}")
                     stats["errors"] += 1
                     failed_ids_internal.append(msg.id)
-            except Exception as e:
-                LOGGER.error(f"❌ Error processing message {msg.id}: {e}")
-                stats["errors"] += 1
-                failed_ids_internal.append(msg.id)
 
-            await MongoDB.update_scan_progress(scan_id, stats["total"])
+        tasks = [worker(msg) for msg in reversed(messages)]
+        await asyncio.gather(*tasks)
+
+        # Stop the updater and perform one final update
+        stop_event.set()
+        await updater_task
+        await MongoDB.update_scan_progress(scan_id, total_messages)
 
         if failed_ids_internal:
             await MongoDB.save_failed_ids(channel_id, failed_ids_internal)
@@ -107,13 +120,13 @@ async def process_channel_enhanced(channel_id, message):
         LOGGER.info(f"✅ Scan complete for {chat.title}. Summary sent.")
 
     except Exception as e:
-        LOGGER.error(f"💥 Critical error in channel processing for {channel_id}: {e}")
+        LOGGER.error(f"💥 Critical error in concurrent processing for {channel_id}: {e}")
         await send_reply(message, f"❌ A critical error occurred during the scan for **{chat.title}**.")
     finally:
         await MongoDB.end_scan(scan_id)
 
-async def force_process_channel(channel_id, message):
-    """Process only the failed message IDs stored in the database."""
+async def force_process_channel_concurrently(channel_id, message):
+    """Concurrently processes only the failed message IDs stored in the database."""
     scan_id = f"force_scan_{channel_id}_{message.id}"
     user_id = message.from_user.id
     
@@ -130,20 +143,27 @@ async def force_process_channel(channel_id, message):
         
         messages_to_process = await TgClient.user.get_messages(chat_id=channel_id, message_ids=failed_ids)
         
-        for i, msg in enumerate(messages_to_process):
-            if not msg:
-                await MongoDB.update_scan_progress(scan_id, i + 1)
-                continue
-            
-            LOGGER.info(f"🎯 Force-processing media message {msg.id} in channel {channel_id}")
-            success, _ = await process_message_full_download_only(TgClient.user, msg)
-            if success:
-                stats["processed"] += 1
-            else:
-                stats["errors"] += 1
-            
-            await MongoDB.update_scan_progress(scan_id, i + 1)
+        semaphore = asyncio.Semaphore(Config.MAX_CONCURRENT_TASKS)
+        stop_event = asyncio.Event()
+        updater_task = asyncio.create_task(progress_updater(scan_id, stats, stop_event))
+        
+        async def worker(msg):
+            if not msg: return
+            async with semaphore:
+                LOGGER.info(f"🎯 Force-processing media message {msg.id} in channel {channel_id}")
+                success, _ = await process_message_full_download_only(TgClient.user, msg)
+                if success:
+                    stats["processed"] += 1
+                else:
+                    stats["errors"] += 1
+        
+        tasks = [worker(msg) for msg in messages_to_process]
+        await asyncio.gather(*tasks)
 
+        stop_event.set()
+        await updater_task
+        await MongoDB.update_scan_progress(scan_id, len(failed_ids))
+        
         await MongoDB.clear_failed_ids(channel_id)
         summary_text = (f"✅ **Force Scan Complete: {chat.title}**\n\n"
                         f"- **Updated:** {stats['processed']} files\n"
@@ -155,6 +175,7 @@ async def force_process_channel(channel_id, message):
         await send_reply(message, f"❌ A critical error occurred during the force scan for channel **{channel_id}**.")
     finally:
         await MongoDB.end_scan(scan_id)
+
 
 async def process_message_full_download_only(client, message):
     """A simplified processor that only attempts a full download with ffprobe fallback."""
