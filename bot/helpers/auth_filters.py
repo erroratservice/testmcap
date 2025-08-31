@@ -1,16 +1,21 @@
 """
-Pyrofork authorization filters 
+Corrected authorization filters for Pyrofork with proper signature
 """
 
 from pyrogram import filters
 from bot.core.config import Config
 
 class AuthFilters:
-    """Custom authorization filters for Pyrofork"""
+    """Custom authorization filters with correct Pyrofork signature"""
     
     @staticmethod
-    async def authorized_filter(_, __, message):
-        """Check if user is authorized - Pyrofork async filter signature"""
+    async def authorized_filter(flt, client, message):
+        """
+        Authorization filter - MUST have exactly 3 parameters:
+        flt: filter instance
+        client: client instance  
+        message: message object
+        """
         user_id = message.from_user.id if message.from_user else None
         
         if not user_id:
@@ -30,5 +35,5 @@ class AuthFilters:
         
         return False
     
-    # Create filter with Pyrofork
+    # Create the filter using the correct function
     authorized = filters.create(authorized_filter)
