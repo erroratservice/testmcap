@@ -9,7 +9,7 @@ from datetime import datetime
 from bot.core.client import TgClient
 from bot.core.config import Config
 from bot.helpers.message_utils import send_message, send_reply
-from bot.helpers.file_utils import extract_channel_list, parse_media_filename
+from bot.helpers.file_utils import extract_channel_list, parse_media_info # <-- IMPORT THE NEW FUNCTION
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 
@@ -72,18 +72,18 @@ async def create_channel_index(channel_id, message):
         unparsable_count = 0
 
         for i, msg in enumerate(reversed(messages)):
-            # --- MODIFIED: Correctly identify media in documents, videos, or audio ---
             media = msg.video or msg.audio or msg.document
             
             if media and hasattr(media, 'file_name') and media.file_name:
-                parsed = parse_media_filename(media.file_name)
+                # --- MODIFIED: Pass both filename and caption to the new parser ---
+                parsed = parse_media_info(media.file_name, msg.caption)
                 if parsed:
                     add_to_index(content_index, parsed, msg)
                     file_count += 1
                 else:
-                    unparsable_count += 1 # Count files that couldn't be parsed
+                    unparsable_count += 1
             else:
-                skipped_count += 1 # Count non-media or no-filename messages
+                skipped_count += 1
             
             await MongoDB.update_scan_progress(scan_id, i + 1)
         
@@ -153,13 +153,13 @@ def format_content_index(channel_name, content_index, total_files):
         if any(isinstance(k, int) and k > 1900 for k in content.keys()):
             for year, data in content.items():
                 if 'movie' in data:
-                    qualities = " | ".join(f"{q['quality']} ({q['codec']})" for q in data['movie'])
+                    qualities = " | ".join(f"**{q['quality']}** ({q['codec']})" for q in data['movie'])
                     lines.append(f"🎞️ **{year}**: {qualities}")
         else:
             for season, episodes in sorted(content.items()):
                 lines.append(f"📺 **Season {season}**")
                 for episode, data in sorted(episodes.items()):
-                    qualities = " | ".join(f"{q['quality']} ({q['codec']})" for q in data)
+                    qualities = " | ".join(f"**{q['quality']}** ({q['codec']})" for q in data)
                     lines.append(f"└── Episode {episode}: {qualities}")
         
         lines.append("")
