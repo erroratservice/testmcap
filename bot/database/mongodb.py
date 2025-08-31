@@ -2,8 +2,11 @@
 MongoDB database interface (optional)
 """
 
+import logging
 from motor.motor_asyncio import AsyncIOMotorClient
 from bot.core.config import Config
+
+LOGGER = logging.getLogger(__name__)
 
 class MongoDB:
     """MongoDB database manager"""
@@ -20,7 +23,9 @@ class MongoDB:
             cls.db = cls.client.mediaindexbot
             cls.collection = cls.db.mcapindexer # All data will be in this collection
             await cls.client.admin.command('ismaster')
-        except Exception:
+            LOGGER.info("✅ MongoDB connected successfully.")
+        except Exception as e:
+            LOGGER.error(f"❌ MongoDB connection failed: {e}")
             raise
     
     @classmethod
@@ -28,6 +33,7 @@ class MongoDB:
         """Close database connection"""
         if cls.client:
             cls.client.close()
+            LOGGER.info("✅ MongoDB connection closed.")
 
     # --- Failed IDs Management ---
     @classmethod
