@@ -35,7 +35,6 @@ class MongoDB:
             cls.client.close()
             LOGGER.info("✅ MongoDB connection closed.")
 
-    # --- Status Message Management ---
     @classmethod
     async def set_status_message(cls, chat_id, message_id):
         """Saves the chat and message ID of the central status message."""
@@ -51,8 +50,13 @@ class MongoDB:
         """Retrieves the location of the central status message."""
         if cls.collection is None: return None
         return await cls.collection.find_one({'_id': 'status_message_tracker'})
+    
+    @classmethod
+    async def delete_status_message_tracker(cls):
+        """Deletes the tracker document for the status message."""
+        if cls.collection is None: return
+        await cls.collection.delete_one({'_id': 'status_message_tracker'})
 
-    # --- Failed IDs Management ---
     @classmethod
     async def save_failed_ids(cls, channel_id, failed_ids):
         """Save failed IDs as a document in the main collection."""
@@ -76,7 +80,6 @@ class MongoDB:
         if cls.collection is None: return
         await cls.collection.delete_one({'_id': f"failed_{channel_id}", 'type': 'failed_job'})
 
-    # --- Active Scan Tracking ---
     @classmethod
     async def start_scan(cls, scan_id, channel_id, user_id, total_messages, chat_title, operation):
         """Create a new scan document in the main collection."""
@@ -108,7 +111,7 @@ class MongoDB:
         await cls.collection.delete_one({'_id': scan_id, 'type': 'active_scan'})
 
     @classmethod
-    async def get_interrupted_scans(cls):
+    async def get_active_scans(cls):
         """Get all active scan documents from the main collection."""
         if cls.collection is None: return []
         cursor = cls.collection.find({'type': 'active_scan'})
