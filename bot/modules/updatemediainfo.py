@@ -3,6 +3,7 @@ Enhanced MediaInfo with multi-chunk extraction and clean output
 """
 
 import asyncio
+import logging
 import os
 import json
 from aiofiles import open as aiopen
@@ -11,6 +12,8 @@ from pyrogram.errors import MessageNotModified
 from bot.core.client import TgClient
 from bot.helpers.message_utils import send_message, edit_message
 from bot.database.mongodb import MongoDB
+
+LOGGER = logging.getLogger(__name__)
 
 # Configuration
 CHUNK_STEPS = [5, 10, 15]
@@ -21,7 +24,7 @@ async def updatemediainfo_handler(client, message):
     """Handler with database-driven force-processing."""
     try:
         if MongoDB.db is None:
-            await send_message(message, "❌ **Error:** Database is not connected. Cannot use this feature.")
+            await send_message(message, "❌ **Error:** Database is not connected. This feature is disabled.")
             return
 
         is_force_run = len(message.command) > 2 and message.command[2] == '-f'
@@ -34,11 +37,14 @@ async def updatemediainfo_handler(client, message):
         channel_id = channels[0]
 
         if is_force_run:
+            LOGGER.info(f"🚀 Starting FORCE processing for channel {channel_id}")
             await force_process_channel(channel_id, message)
         else:
+            LOGGER.info(f"🚀 Starting standard scan for channel {channel_id}")
             await process_channel_enhanced(channel_id, message)
             
     except Exception as e:
+        LOGGER.error(f"💥 Handler error in updatemediainfo: {e}")
         await send_message(message, f"❌ **Error:** {e}")
 
 async def process_channel_enhanced(channel_id, message):
@@ -73,6 +79,8 @@ async def process_channel_enhanced(channel_id, message):
             
             stats["media"] += 1
             
+            LOGGER.info(f"🎯 Processing media message {msg.id} in {chat.title}")
+
             try:
                 success, method = await process_message_enhanced(TgClient.user, msg)
                 if success:
@@ -82,7 +90,8 @@ async def process_channel_enhanced(channel_id, message):
                 else:
                     stats["errors"] += 1
                     stats["failed_ids"].append(msg.id)
-            except Exception:
+            except Exception as e:
+                LOGGER.error(f"❌ Error processing message {msg.id}: {e}")
                 stats["errors"] += 1
                 stats["failed_ids"].append(msg.id)
 
@@ -103,9 +112,10 @@ async def process_channel_enhanced(channel_id, message):
                        f"❌ **Errors:** {stats['errors']} | ⏭️ **Skipped:** {stats['skipped']}\n\n"
                        f"Failed IDs for this run have been saved. Use `-f` to retry them.")
         await edit_message(progress_msg, final_stats)
+        LOGGER.info(f"✅ Scan complete for {chat.title}. Updated: {stats['processed']}, Errors: {stats['errors']}")
 
-    except Exception:
-        pass
+    except Exception as e:
+        LOGGER.error(f"💥 Critical error in channel processing for {channel_id}: {e}")
     finally:
         await MongoDB.end_scan(scan_id)
 
@@ -124,6 +134,8 @@ async def force_process_channel(channel_id, message):
     
     for msg in messages_to_process:
         if not msg: continue
+        
+        LOGGER.info(f"🎯 Force-processing media message {msg.id} in channel {channel_id}")
         success, _ = await process_message_full_download_only(TgClient.user, msg)
         if success:
             stats["processed"] += 1
@@ -134,6 +146,7 @@ async def force_process_channel(channel_id, message):
 
     await MongoDB.clear_failed_ids(channel_id)
     await edit_message(progress_msg, f"✅ **Force Processing Complete!**\n✅ **Updated:** {stats['processed']} files\n❌ **Errors:** {stats['errors']} files\n\nFailed ID list has been cleared.")
+    LOGGER.info(f"✅ Force-processing complete for channel {channel_id}.")
 
 async def process_message_full_download_only(client, message):
     """A simplified processor that only attempts a full download."""
@@ -157,7 +170,8 @@ async def process_message_full_download_only(client, message):
                     await cleanup_files([temp_file])
                     return True, "full"
         return False, "failed"
-    except Exception:
+    except Exception as e:
+        LOGGER.error(f"Full download processing error for message {message.id}: {e}")
         return False, "error"
     finally:
         await cleanup_files([temp_file])
@@ -192,7 +206,8 @@ async def process_message_enhanced(client, message):
                             if await update_caption_clean(message, video_info, audio_tracks):
                                 await cleanup_files([temp_file])
                                 return True, f"chunk{step}"
-            except Exception:
+            except Exception as e:
+                LOGGER.warning(f"Chunk-based processing failed for message {message.id} at step {step}: {e}")
                 pass
 
         if file_size <= FULL_DOWNLOAD_LIMIT:
@@ -206,10 +221,12 @@ async def process_message_enhanced(client, message):
                             await cleanup_files([temp_file])
                             return True, "full"
             except asyncio.TimeoutError:
+                LOGGER.warning(f"Full download timed out for message {message.id}")
                 pass
         
         return False, "failed"
-    except Exception:
+    except Exception as e:
+        LOGGER.error(f"Enhanced processing error for message {message.id}: {e}")
         return False, "error"
     finally:
         await cleanup_files([temp_file])
@@ -222,7 +239,8 @@ async def extract_mediainfo_from_file(file_path):
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=MEDIAINFO_TIMEOUT)
         return json.loads(stdout.decode()) if stdout else None
-    except Exception:
+    except Exception as e:
+        LOGGER.error(f"MediaInfo extraction error on file {file_path}: {e}")
         return None
 
 def parse_essential_metadata(metadata):
@@ -245,7 +263,8 @@ def parse_essential_metadata(metadata):
                 else:
                     audio_tracks.append({"language": None})
         return video_info, audio_tracks
-    except Exception:
+    except Exception as e:
+        LOGGER.error(f"Metadata parsing error: {e}")
         return None, []
 
 async def update_caption_clean(message, video_info, audio_tracks):
@@ -286,7 +305,8 @@ async def update_caption_clean(message, video_info, audio_tracks):
         return True
     except MessageNotModified:
         return False
-    except Exception:
+    except Exception as e:
+        LOGGER.error(f"Caption update error for message {message.id}: {e}")
         return False
 
 async def cleanup_files(file_paths):
@@ -294,7 +314,8 @@ async def cleanup_files(file_paths):
         try:
             if file_path and os.path.exists(file_path):
                 await aioremove(file_path)
-        except Exception:
+        except Exception as e:
+            LOGGER.warning(f"File cleanup warning for {file_path}: {e}")
             pass
 
 async def has_media(msg):
