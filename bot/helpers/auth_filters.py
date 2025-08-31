@@ -1,16 +1,16 @@
 """
-Clean authorization filters for Media Indexing Bot
+Pyrofork authorization filters 
 """
 
-from pyrogram import filters
+from pyrofork import filters
 from bot.core.config import Config
 
 class AuthFilters:
-    """Custom authorization filters"""
+    """Custom authorization filters for Pyrofork"""
     
     @staticmethod
-    def authorized_filter(_, __, message):
-        """Check if user is authorized"""
+    async def authorized_filter(_, __, message):
+        """Check if user is authorized - Pyrofork async filter signature"""
         user_id = message.from_user.id if message.from_user else None
         
         if not user_id:
@@ -28,7 +28,7 @@ class AuthFilters:
             except ValueError:
                 pass
         
-        # If no restrictions, allow owner only
         return False
     
+    # Create filter with Pyrofork
     authorized = filters.create(authorized_filter)
