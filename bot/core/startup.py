@@ -3,11 +3,15 @@ Clean bot startup sequence
 """
 
 import asyncio
+import logging
 import os
 from bot.core.config import Config
 from bot.core.client import TgClient
 from bot.core.handlers import register_handlers
 from bot.database.mongodb import MongoDB
+
+# Re-added for startup confirmation
+LOGGER = logging.getLogger(__name__)
 
 async def check_and_notify_interrupted_scans():
     """Check for interrupted scans and notify the owner."""
@@ -44,7 +48,7 @@ async def main():
         if Config.DATABASE_URL:
             try:
                 await MongoDB.initialize()
-            except Exception:
+            except Exception as e:
                 # Bot can run without DB, but some features will be disabled
                 pass
         
@@ -55,11 +59,16 @@ async def main():
         
         register_handlers()
         
+        # Re-added startup confirmation message
+        LOGGER.info("🚀 Media Indexing Bot started successfully!")
+        
         await asyncio.Future()
         
     except KeyboardInterrupt:
         pass
-    except Exception:
+    except Exception as e:
+        # Re-added error logging for startup failures
+        LOGGER.error(f"💥 Startup failed: {e}")
         raise
     finally:
         await TgClient.stop()
