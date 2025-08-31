@@ -1,11 +1,9 @@
 """
-Index files command for organizing channel content with batched status updates.
+Advanced index files command with a batched processing system.
 """
-
 import logging
 import asyncio
 from collections import defaultdict
-from datetime import datetime
 from bot.core.client import TgClient
 from bot.core.config import Config
 from bot.helpers.message_utils import send_message, send_reply
@@ -23,6 +21,7 @@ TOTAL_EPISODES_MAP = {
     "Game of Thrones": {1: 10, 2: 10, 3: 10, 4: 10, 5: 10, 6: 10, 7: 7, 8: 6},
     "Byker Grove": {5: 20}
 }
+BATCH_SIZE = 100
 
 async def indexfiles_handler(client, message):
     """Handler for the /indexfiles command."""
@@ -47,7 +46,7 @@ async def indexfiles_handler(client, message):
         await send_message(message, f"❌ **Error:** {e}")
 
 async def create_channel_index(channel_id, message):
-    """The main indexing process with live status updates."""
+    """The main indexing process with batched scan and update phases."""
     scan_id = f"index_{channel_id}_{message.id}"
     user_id = message.from_user.id
     
@@ -59,8 +58,6 @@ async def create_channel_index(channel_id, message):
         total_messages = len(messages)
         
         await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "Indexing Scan")
-        
-        LOGGER.info(f"Phase 1: Scanning and collecting all media from {chat.title}...")
         
         media_map = defaultdict(list)
         unparsable_count = 0
@@ -79,25 +76,22 @@ async def create_channel_index(channel_id, message):
             else:
                 skipped_count += 1
             
-            # --- MODIFIED: Update progress in batches of 100 for efficiency ---
-            if (i + 1) % 100 == 0 or (i + 1) == total_messages:
-                await MongoDB.update_scan_progress(scan_id, i + 1)
-
-        LOGGER.info(f"Phase 1 Complete. Found {len(media_map)} unique titles.")
-        
-        await MongoDB.end_scan(scan_id) # End the "Scanning" phase
-
-        LOGGER.info(f"Phase 2: Aggregating data and updating posts...")
-        if media_map:
-            for title, items in media_map.items():
-                for item in items:
-                    await MongoDB.add_media_entry(item, item['file_size'], item['msg_id'])
-                await update_or_create_post(title, channel_id)
+            # Process in batches to avoid overwhelming APIs
+            if (i + 1) % BATCH_SIZE == 0 or (i + 1) == total_messages:
+                LOGGER.info(f"Processing batch of {len(media_map)} titles...")
+                await process_batch(media_map, channel_id)
+                media_map.clear() # Clear the map for the next batch
+                
+                # --- MODIFIED: Add a cool-down period between batches ---
+                if (i + 1) < total_messages:
+                    LOGGER.info(f"Batch complete. Waiting for 10 seconds before the next batch...")
+                    await asyncio.sleep(10) # Wait for 10 seconds
+            
+            await MongoDB.update_scan_progress(scan_id, i + 1)
 
         LOGGER.info(f"✅ Full indexing scan complete for channel {chat.title}.")
         
         summary_text = (f"✅ **Indexing Task Finished for {chat.title}**\n\n"
-                        f"- **Titles Found:** {len(media_map)}\n"
                         f"- **Unparsable Media:** {unparsable_count} files\n"
                         f"- **Skipped Non-Media:** {skipped_count} messages")
         await send_reply(message, summary_text)
@@ -107,6 +101,14 @@ async def create_channel_index(channel_id, message):
         await send_reply(message, f"❌ An error occurred during the index scan for channel {channel_id}.")
     finally:
         await MongoDB.end_scan(scan_id)
+
+async def process_batch(media_map, channel_id):
+    """Aggregates and updates posts for a batch of collected media."""
+    for title, items in media_map.items():
+        for item in items:
+            await MongoDB.add_media_entry(item, item['file_size'], item['msg_id'])
+        # Update the post for this title once with all its collected data for this batch
+        await update_or_create_post(title, channel_id)
 
 async def update_or_create_post(title, channel_id):
     """Fetches data and updates or creates a post for a given title."""
