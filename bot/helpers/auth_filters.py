@@ -1,39 +1,37 @@
 """
-Authorization filters with correct underscore placeholders
+Authorization filters based on working dual-session repository pattern
 """
 
-from pyrogram import filters
+from pyrogram.filters import create
 from bot.core.config import Config
 
 class AuthFilters:
-    """Custom authorization filters using underscore convention"""
+    """Custom authorization filters using working repository pattern"""
     
-    @staticmethod
-    async def authorized_filter(_, __, message):
-        """
-        Authorization filter callback
-        _: filter instance (unused)
-        __: client instance (unused)  
-        message: message object (used for auth check)
-        """
-        user_id = message.from_user.id if message.from_user else None
-        
-        if not user_id:
-            return False
+    async def owner_filter(self, _, update):
+        """Owner authorization filter"""
+        user = update.from_user or update.sender_chat
+        return user.id == Config.OWNER_ID
+    
+    owner = create(owner_filter)
+    
+    async def authorized_user(self, _, update):
+        """Authorized user filter"""
+        user = update.from_user or update.sender_chat
+        uid = user.id
         
         # Owner is always authorized
-        if user_id == Config.OWNER_ID:
+        if uid == Config.OWNER_ID:
             return True
         
         # Check authorized chats
         if Config.AUTHORIZED_CHATS:
             try:
                 authorized_ids = [int(x.strip()) for x in Config.AUTHORIZED_CHATS.split(',') if x.strip()]
-                return user_id in authorized_ids
+                return uid in authorized_ids
             except (ValueError, AttributeError):
                 pass
         
         return False
     
-    # Create the filter
-    authorized = filters.create(authorized_filter)
+    authorized = create(authorized_user)
