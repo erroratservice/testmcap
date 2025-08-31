@@ -1,23 +1,24 @@
 """
-Telegram client management for Media Indexing Bot
+Enhanced Telegram client management with error handling
 """
 
+import asyncio
 import logging
 from pyrogram import Client
-from pyrogram.errors import AuthKeyDuplicated, UserDeactivated
+from pyrogram.errors import AuthKeyDuplicated, UserDeactivated, PeerIdInvalid
 from bot.core.config import Config
 
 LOGGER = logging.getLogger(__name__)
 
 class TgClient:
-    """Manages bot and user Telegram clients"""
+    """Manages bot and user Telegram clients with enhanced error handling"""
     
     bot = None
     user = None
     
     @classmethod
     async def initialize(cls):
-        """Initialize both bot and user clients"""
+        """Initialize both bot and user clients with error handling"""
         try:
             # Bot client
             cls.bot = Client(
@@ -28,17 +29,22 @@ class TgClient:
                 workers=8
             )
             
-            # User client for channel access
+            # User client for channel access with error handling
             cls.user = Client(
                 name="MediaIndexUser", 
                 api_id=Config.TELEGRAM_API,
                 api_hash=Config.TELEGRAM_HASH,
                 session_string=Config.USER_SESSION_STRING,
-                workers=8
+                workers=8,
+                # Add error handling for peer resolution
+                parse_mode=None
             )
             
             await cls.bot.start()
             await cls.user.start()
+            
+            # Add global error handler for peer issues
+            cls.user.add_handler(cls._error_handler, group=-1)
             
             bot_info = await cls.bot.get_me()
             user_info = await cls.user.get_me()
@@ -55,6 +61,18 @@ class TgClient:
         except Exception as e:
             LOGGER.error(f"❌ Failed to initialize clients: {e}")
             raise
+    
+    @staticmethod
+    async def _error_handler(client, update, exception):
+        """Global error handler for peer ID issues"""
+        if isinstance(exception, (PeerIdInvalid, ValueError)) and "Peer id invalid" in str(exception):
+            # Extract peer ID from error message
+            peer_id = str(exception).split(":")[-1].strip() if ":" in str(exception) else "unknown"
+            LOGGER.warning(f"⚠️ Ignoring inaccessible peer: {peer_id}")
+            return  # Silently ignore
+        
+        # Log other errors normally
+        LOGGER.error(f"❌ Unhandled error: {exception}")
     
     @classmethod
     async def stop(cls):
