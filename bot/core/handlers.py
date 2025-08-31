@@ -1,10 +1,10 @@
 """
-Clean command handlers registration
+Pyrofork command handlers registration
 """
 
 import logging
-from pyrogram import filters
-from pyrogram.handlers import MessageHandler
+from pyrofork import filters
+from pyrofork.handlers import MessageHandler
 
 from bot.core.client import TgClient
 from bot.helpers.auth_filters import AuthFilters
@@ -18,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 
 async def start_handler(client, message):
     """Welcome message handler"""
-    welcome_text = """🤖 **Media Indexing Bot**
+    welcome_text = """🤖 **Media Indexing Bot** *(Powered by Pyrofork)*
 
 🎯 **Purpose:** Extract MediaInfo and organize channel content
 
@@ -34,7 +34,7 @@ async def start_handler(client, message):
     await message.reply(welcome_text)
 
 def register_handlers():
-    """Register all command handlers"""
+    """Register all command handlers with Pyrofork"""
     bot = TgClient.bot
     
     handlers = [
