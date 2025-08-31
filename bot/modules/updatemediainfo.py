@@ -1,63 +1,66 @@
 """
-MediaInfo update with reliable strategy - no hanging issues
+MediaInfo update using WZML-X WZV3 proven approach
 """
 
 import asyncio
 import logging
 import os
 import tempfile
-import json
 from datetime import datetime
+from aiofiles import open as aiopen
+from aiofiles.os import remove as aioremove
 from pyrogram.errors import MessageNotModified
 from bot.core.client import TgClient
 from bot.helpers.message_utils import send_message, edit_message
 
 LOGGER = logging.getLogger(__name__)
 
+# WZML-X WZV3 Configuration
+FULL_DOWNLOAD_LIMIT = 50 * 1024 * 1024  # 50MB like wzv3
+PARTIAL_CHUNK_LIMIT = 5  # 5 chunks like wzv3
+
 async def updatemediainfo_handler(client, message):
-    """Final handler - reliable and fast"""
+    """WZML-X WZV3 style handler"""
     try:
-        LOGGER.info("🚀 Starting updatemediainfo with reliable strategy")
+        LOGGER.info("🚀 Starting WZML-X WZV3 style MediaInfo processing")
         
         channels = await get_target_channels(message)
         if not channels:
-            await send_message(message, 
-                "❌ **Usage:**\n• `/updatemediainfo -1001234567890`")
+            await send_message(message, "❌ **Usage:** `/updatemediainfo -1001234567890`")
             return
         
         for channel_id in channels:
-            await process_channel_reliable(channel_id, message)
+            await process_channel_wzv3_style(channel_id, message)
             
     except Exception as e:
         LOGGER.error(f"💥 Handler error: {e}", exc_info=True)
         await send_message(message, f"❌ **Error:** {e}")
 
-async def process_channel_reliable(channel_id, message):
-    """Process channel with reliable approach - no hanging"""
+async def process_channel_wzv3_style(channel_id, message):
+    """Process channel using WZML-X WZV3 methodology"""
     try:
         chat = await TgClient.user.get_chat(channel_id)
         LOGGER.info(f"✅ Processing channel: {chat.title}")
         
         progress_msg = await send_message(message,
             f"🔄 **Processing:** {chat.title}\n"
-            f"📊 **Method:** Reliable Strategy (No Hanging)\n"
-            f"🎯 **Steps:** 30MB Head → Full Download Fallback\n"
+            f"📊 **Method:** WZML-X WZV3 Style\n"
+            f"🎯 **Strategy:** 50MB Full | 5-Chunk Partial\n"
+            f"🔧 **Tool:** MediaInfo CLI\n"
             f"🔍 **Status:** Starting...")
         
         stats = {"processed": 0, "errors": 0, "skipped": 0, 
-                "head_success": 0, "full_success": 0, "total": 0, "media": 0}
+                "full_downloads": 0, "partial_downloads": 0, "total": 0, "media": 0}
         
         message_count = 0
         async for msg in TgClient.user.get_chat_history(chat_id=channel_id, limit=100):
             message_count += 1
             stats["total"] += 1
             
-            # Skip non-media
             if not await has_media(msg):
                 stats["skipped"] += 1
                 continue
             
-            # Skip already processed
             if await already_has_mediainfo(msg):
                 stats["skipped"] += 1
                 continue
@@ -66,16 +69,17 @@ async def process_channel_reliable(channel_id, message):
             LOGGER.info(f"🎯 Processing media message {msg.id}")
             
             try:
-                success, method = await process_message_reliable(TgClient.user, msg)
+                success, method = await process_message_wzv3_style(TgClient.user, msg)
                 if success:
                     stats["processed"] += 1
-                    if method == "head":
-                        stats["head_success"] += 1
-                    elif method == "full":
-                        stats["full_success"] += 1
+                    if method == "full":
+                        stats["full_downloads"] += 1
+                    elif method == "partial":
+                        stats["partial_downloads"] += 1
                     LOGGER.info(f"✅ Updated message {msg.id} using {method}")
                 else:
                     stats["errors"] += 1
+                    LOGGER.warning(f"⚠️ Failed to update message {msg.id}")
             except Exception as e:
                 LOGGER.error(f"❌ Error processing {msg.id}: {e}")
                 stats["errors"] += 1
@@ -86,222 +90,221 @@ async def process_channel_reliable(channel_id, message):
                     f"🔄 **Processing:** {chat.title}\n"
                     f"📊 **Messages:** {stats['total']} | **Media:** {stats['media']}\n"
                     f"✅ **Updated:** {stats['processed']} | ❌ **Errors:** {stats['errors']}\n"
-                    f"🎯 **Head:** {stats['head_success']} | 📥 **Full:** {stats['full_success']}")
+                    f"📥 **Full:** {stats['full_downloads']} | 📦 **Partial:** {stats['partial_downloads']}")
                 await asyncio.sleep(0.5)
         
         # Final results
         final_stats = (
             f"✅ **Completed:** {chat.title}\n"
-            f"📊 **Total:** {stats['total']} | **Media:** {stats['media']}\n"
+            f"📊 **Total Messages:** {stats['total']}\n"
+            f"📁 **Media Found:** {stats['media']}\n"
             f"✅ **Updated:** {stats['processed']} files\n"
-            f"❌ **Errors:** {stats['errors']} | ⏭️ **Skipped:** {stats['skipped']}\n\n"
-            f"🎯 **Head Success:** {stats['head_success']}\n"
-            f"📥 **Full Success:** {stats['full_success']}"
+            f"❌ **Errors:** {stats['errors']} files\n"
+            f"⏭️ **Skipped:** {stats['skipped']} files\n\n"
+            f"📥 **Full Downloads:** {stats['full_downloads']}\n"
+            f"📦 **Partial Downloads:** {stats['partial_downloads']}"
         )
         
         await edit_message(progress_msg, final_stats)
-        LOGGER.info(f"🎉 Completed: {stats['processed']} updated, {stats['errors']} errors")
+        LOGGER.info(f"🎉 WZML-X WZV3 style processing complete")
         
     except Exception as e:
         LOGGER.error(f"💥 Channel processing error: {e}")
 
-async def process_message_reliable(client, message):
-    """Reliable processing - no hanging guaranteed"""
+async def process_message_wzv3_style(client, message):
+    """Process message using exact WZML-X WZV3 approach"""
+    temp_file_path = None
     try:
+        # Get media info
         media = message.video or message.audio or message.document
         if not media:
             return False, "none"
         
         filename = str(media.file_name) if media.file_name else f"media_{message.id}"
-        size = media.file_size
+        file_size = media.file_size
         
-        LOGGER.info(f"📁 Processing: {filename} ({size/1024/1024:.1f}MB)")
+        LOGGER.info(f"📁 Processing: {filename} ({file_size/1024/1024:.1f}MB)")
         
-        # Strategy 1: Large head chunk (30MB) - catches most files
-        LOGGER.debug("🎯 Trying 30MB head chunk")
-        success = await download_and_process_chunk(client, message, filename, 30)
-        if success:
-            return True, "head"
+        # Create mediainfo directory (like wzv3)
+        mediainfo_dir = "mediainfo"
+        if not os.path.exists(mediainfo_dir):
+            os.makedirs(mediainfo_dir)
         
-        # Strategy 2: Full download fallback (files ≤ 1GB only)
-        if size <= 1024 * 1024 * 1024:  # 1GB limit
-            LOGGER.debug("📥 Trying full download fallback")
-            success = await download_and_process_full(client, message, filename)
-            if success:
-                return True, "full"
+        # Create temp file path
+        safe_filename = filename.replace('/', '_').replace(' ', '_')
+        temp_file_path = os.path.join(mediainfo_dir, f"wzv3_{message.id}_{safe_filename}")
+        
+        # WZML-X WZV3 download strategy
+        if file_size <= FULL_DOWNLOAD_LIMIT:
+            LOGGER.info(f"📥 Full download (WZV3 style): {file_size/1024/1024:.1f}MB <= 50MB")
+            
+            # Full download like wzv3
+            try:
+                await asyncio.wait_for(
+                    message.download(temp_file_path), 
+                    timeout=300.0  # 5 minute timeout
+                )
+                method = "full"
+            except asyncio.TimeoutError:
+                LOGGER.warning(f"⚠️ Full download timed out")
+                return False, "timeout"
+                
         else:
-            LOGGER.warning(f"⚠️ File too large for full download: {size/1024/1024:.1f}MB")
+            LOGGER.info(f"📦 Partial download (WZV3 style): 5 chunks")
+            
+            # Partial download exactly like wzv3
+            try:
+                chunk_count = 0
+                async for chunk in client.stream_media(message, limit=PARTIAL_CHUNK_LIMIT):
+                    async with aiopen(temp_file_path, "ab") as f:
+                        await f.write(chunk)
+                    chunk_count += 1
+                
+                if chunk_count == 0:
+                    return False, "no_chunks"
+                    
+                method = "partial"
+                LOGGER.info(f"✅ Downloaded {chunk_count} chunks")
+                
+            except Exception as e:
+                LOGGER.error(f"❌ Partial download error: {e}")
+                return False, "download_error"
         
-        return False, "failed"
+        # Verify file exists
+        if not os.path.exists(temp_file_path):
+            return False, "file_not_found"
+        
+        downloaded_size = os.path.getsize(temp_file_path)
+        LOGGER.info(f"✅ Downloaded: {downloaded_size/1024/1024:.1f}MB")
+        
+        # Extract MediaInfo using wzv3 approach
+        success = await extract_mediainfo_wzv3_style(temp_file_path, message)
+        return success, method
         
     except Exception as e:
-        LOGGER.error(f"💥 Reliable processing error: {e}")
+        LOGGER.error(f"💥 WZV3 style processing error: {e}")
         return False, "error"
-
-async def download_and_process_chunk(client, message, filename, size_mb):
-    """Download head chunk with robust timeout handling"""
-    download_path = None
-    try:
-        # Create temp file
-        rand_str = f"chunk_{size_mb}_{message.id}"
-        download_path = f"/tmp/{rand_str}_{filename.replace('/', '_').replace(' ', '_')}"
-        
-        # Download with asyncio.wait_for timeout
-        chunk_size = 100 * 1024  # 100KB
-        max_chunks = int((size_mb * 1024 * 1024) / chunk_size)
-        
-        LOGGER.debug(f"📥 Downloading {size_mb}MB ({max_chunks} chunks)")
-        
-        async def do_download():
-            chunk_count = 0
-            async for chunk in client.stream_media(message, limit=max_chunks):
-                with open(download_path, "ab") as f:
-                    f.write(chunk)
-                chunk_count += 1
-                if chunk_count >= max_chunks:
-                    break
-            return chunk_count
-        
-        # Use asyncio.wait_for for timeout
-        try:
-            chunk_count = await asyncio.wait_for(do_download(), timeout=180.0)  # 3 minute timeout
-            if chunk_count == 0:
-                return False
-        except asyncio.TimeoutError:
-            LOGGER.warning(f"⚠️ {size_mb}MB download timed out")
-            return False
-        
-        # Verify file exists and has content
-        if not os.path.exists(download_path):
-            return False
-        
-        file_size = os.path.getsize(download_path)
-        if file_size == 0:
-            return False
-        
-        LOGGER.debug(f"✅ Downloaded: {file_size/1024/1024:.1f}MB")
-        
-        # Process with MediaInfo
-        return await process_with_mediainfo(download_path, message)
-        
-    except Exception as e:
-        LOGGER.error(f"💥 Chunk download error: {e}")
-        return False
     finally:
-        if download_path and os.path.exists(download_path):
+        # Cleanup like wzv3
+        if temp_file_path and os.path.exists(temp_file_path):
             try:
-                os.remove(download_path)
+                await aioremove(temp_file_path)
+                LOGGER.debug(f"🗑️ Cleaned up: {temp_file_path}")
             except:
                 pass
 
-async def download_and_process_full(client, message, filename):
-    """Full download with timeout - for smaller files only"""
-    download_path = None
+async def extract_mediainfo_wzv3_style(file_path, message):
+    """Extract MediaInfo exactly like WZML-X WZV3"""
     try:
-        rand_str = f"full_{message.id}"
-        download_path = f"/tmp/{rand_str}_{filename.replace('/', '_').replace(' ', '_')}"
+        LOGGER.debug(f"🔍 Running MediaInfo CLI on: {file_path}")
         
-        LOGGER.debug("📥 Starting full download")
+        # Run MediaInfo CLI exactly like wzv3
+        proc = await asyncio.create_subprocess_shell(
+            f'mediainfo "{file_path}"',
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
         
-        # Full download with timeout
-        try:
-            await asyncio.wait_for(message.download(download_path), timeout=600.0)  # 10 minute timeout
-        except asyncio.TimeoutError:
-            LOGGER.warning("⚠️ Full download timed out")
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+        
+        if proc.returncode != 0:
+            LOGGER.warning(f"⚠️ MediaInfo returned code: {proc.returncode}")
+            if stderr:
+                LOGGER.warning(f"MediaInfo stderr: {stderr.decode()}")
+        
+        if not stdout:
+            LOGGER.warning("⚠️ MediaInfo produced no output")
             return False
         
-        if not os.path.exists(download_path):
+        mediainfo_output = stdout.decode()
+        LOGGER.debug(f"📊 MediaInfo output length: {len(mediainfo_output)}")
+        
+        # Parse MediaInfo output like wzv3 parseinfo function
+        video_info, audio_info = parse_mediainfo_wzv3_style(mediainfo_output)
+        
+        if not video_info and not audio_info:
+            LOGGER.warning("⚠️ No video or audio streams found")
             return False
         
-        file_size = os.path.getsize(download_path)
-        LOGGER.debug(f"✅ Full download: {file_size/1024/1024:.1f}MB")
+        LOGGER.info(f"✅ MediaInfo extracted: Video={bool(video_info)}, Audio={bool(audio_info)}")
         
-        # Process with MediaInfo
-        return await process_with_mediainfo(download_path, message)
+        # Update caption
+        return await update_caption_wzv3_style(message, video_info, audio_info)
         
-    except Exception as e:
-        LOGGER.error(f"💥 Full download error: {e}")
+    except asyncio.TimeoutError:
+        LOGGER.warning("⚠️ MediaInfo CLI timed out")
         return False
-    finally:
-        if download_path and os.path.exists(download_path):
-            try:
-                os.remove(download_path)
-            except:
-                pass
-
-async def process_with_mediainfo(file_path, message):
-    """Process file with MediaInfo CLI"""
-    try:
-        # Run MediaInfo with timeout
-        cmd = f"mediainfo '{file_path}' --Output=JSON"
-        
-        async def run_mediainfo():
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
-            return stdout.decode() if stdout else ""
-        
-        try:
-            output = await asyncio.wait_for(run_mediainfo(), timeout=30.0)
-        except asyncio.TimeoutError:
-            LOGGER.warning("⚠️ MediaInfo timed out")
-            return False
-        
-        if not output:
-            return False
-        
-        # Parse and extract metadata
-        try:
-            data = json.loads(output)
-            tracks = data.get("media", {}).get("track", [])
-            
-            video_info = None
-            audio_tracks = []
-            
-            for track in tracks:
-                track_type = track.get("@type", "").lower()
-                if track_type == "video":
-                    video_info = {
-                        "codec": track.get("Format", "Unknown"),
-                        "height": track.get("Height")
-                    }
-                elif track_type == "audio":
-                    audio_tracks.append({
-                        "codec": track.get("Format", "Unknown"),
-                        "language": track.get("Language", "Unknown")
-                    })
-            
-            # Check if we have actual streams
-            if not video_info and not audio_tracks:
-                LOGGER.warning("⚠️ No video/audio streams found")
-                return False
-            
-            LOGGER.info(f"✅ Streams found: Video={bool(video_info)}, Audio={len(audio_tracks)}")
-            
-            # Generate and update caption
-            return await update_caption(message, video_info, audio_tracks)
-            
-        except json.JSONDecodeError:
-            LOGGER.warning("⚠️ MediaInfo JSON parse failed")
-            return False
-        
     except Exception as e:
-        LOGGER.error(f"💥 MediaInfo processing error: {e}")
+        LOGGER.error(f"💥 MediaInfo extraction error: {e}")
         return False
 
-async def update_caption(message, video_info, audio_tracks):
-    """Update message caption with MediaInfo"""
+def parse_mediainfo_wzv3_style(mediainfo_output):
+    """Parse MediaInfo output like wzv3"""
+    try:
+        video_info = None
+        audio_info = None
+        
+        current_section = None
+        lines = mediainfo_output.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            
+            # Detect sections
+            if line.startswith('Video'):
+                current_section = 'video'
+                continue
+            elif line.startswith('Audio'):
+                current_section = 'audio'
+                continue
+            elif line.startswith('General') or line.startswith('Text') or line.startswith('Menu'):
+                current_section = 'other'
+                continue
+            
+            # Parse video info
+            if current_section == 'video' and not video_info:
+                codec = None
+                width = None
+                height = None
+                
+                if 'Format' in line and ':' in line:
+                    codec = line.split(':')[1].strip()
+                elif 'Width' in line and ':' in line:
+                    try:
+                        width = int(line.split(':')[1].strip().split()[0])
+                    except:
+                        pass
+                elif 'Height' in line and ':' in line:
+                    try:
+                        height = int(line.split(':')[1].strip().split()[0])
+                    except:
+                        pass
+                
+                if codec or width or height:
+                    video_info = {'codec': codec, 'width': width, 'height': height}
+            
+            # Parse audio info  
+            elif current_section == 'audio' and not audio_info:
+                if 'Format' in line and ':' in line:
+                    codec = line.split(':')[1].strip()
+                    audio_info = {'codec': codec}
+        
+        return video_info, audio_info
+        
+    except Exception as e:
+        LOGGER.error(f"💥 MediaInfo parsing error: {e}")
+        return None, None
+
+async def update_caption_wzv3_style(message, video_info, audio_info):
+    """Update caption like wzv3 style"""
     try:
         current_caption = message.caption or ""
-        lines = []
+        mediainfo_lines = []
         
         # Video line
-        if video_info:
-            codec = video_info.get("codec", "Unknown")
-            height = video_info.get("height")
+        if video_info and video_info.get('codec'):
+            codec = video_info['codec']
+            height = video_info.get('height')
             
             resolution = ""
             if height:
@@ -323,30 +326,20 @@ async def update_caption(message, video_info, audio_tracks):
             video_line = f"Video: {codec}"
             if resolution:
                 video_line += f" {resolution}"
-            lines.append(video_line)
+            mediainfo_lines.append(video_line)
         
         # Audio line
-        if audio_tracks:
-            count = len(audio_tracks)
-            languages = []
-            for audio in audio_tracks:
-                lang = audio.get("language", "Unknown").upper()
-                if lang and lang not in ["UNKNOWN", "UND"] and lang not in languages:
-                    lang_map = {"EN": "ENG", "HI": "HIN", "ES": "SPA"}
-                    lang = lang_map.get(lang, lang)
-                    languages.append(lang)
-            
-            audio_line = f"Audio: {count}"
-            if languages:
-                audio_line += f" ({', '.join(languages[:3])})"
-            lines.append(audio_line)
+        if audio_info and audio_info.get('codec'):
+            audio_line = f"Audio: {audio_info['codec']}"
+            mediainfo_lines.append(audio_line)
         
-        if not lines:
+        if not mediainfo_lines:
+            LOGGER.warning("⚠️ No MediaInfo lines generated")
             return False
         
         # Create enhanced caption
         enhanced = current_caption.strip()
-        mediainfo_section = "\n\n" + "\n".join(lines)
+        mediainfo_section = "\n\n" + "\n".join(mediainfo_lines)
         enhanced_caption = enhanced + mediainfo_section
         
         # Telegram length limit
@@ -357,8 +350,9 @@ async def update_caption(message, video_info, audio_tracks):
             else:
                 enhanced_caption = mediainfo_section
         
-        # Update if changed
+        # Update caption if changed
         if current_caption == enhanced_caption:
+            LOGGER.warning("⚠️ Caption unchanged")
             return False
         
         try:
@@ -367,8 +361,11 @@ async def update_caption(message, video_info, audio_tracks):
                 message_id=message.id,
                 caption=enhanced_caption
             )
+            LOGGER.info("✅ Caption updated successfully")
             return True
+            
         except MessageNotModified:
+            LOGGER.info("ℹ️ Message not modified")
             return False
         
     except Exception as e:
