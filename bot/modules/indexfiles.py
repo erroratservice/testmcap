@@ -72,8 +72,11 @@ async def create_channel_index(channel_id, message):
         unparsable_count = 0
 
         for i, msg in enumerate(reversed(messages)):
-            if msg.media and hasattr(msg.media, 'file_name') and msg.media.file_name:
-                parsed = parse_media_filename(msg.media.file_name)
+            # --- MODIFIED: Correctly identify media in documents, videos, or audio ---
+            media = msg.video or msg.audio or msg.document
+            
+            if media and hasattr(media, 'file_name') and media.file_name:
+                parsed = parse_media_filename(media.file_name)
                 if parsed:
                     add_to_index(content_index, parsed, msg)
                     file_count += 1
@@ -114,6 +117,7 @@ async def create_channel_index(channel_id, message):
 def add_to_index(content_index, parsed, message):
     """Add parsed content to index structure"""
     title = parsed['title']
+    media = message.video or message.audio or message.document
     
     if parsed['type'] == 'series':
         season = parsed['season']
@@ -121,14 +125,14 @@ def add_to_index(content_index, parsed, message):
         content_index[title][season][episode].append({
             'quality': parsed['quality'],
             'codec': parsed['codec'],
-            'size': format_file_size(message.media.file_size),
+            'size': format_file_size(media.file_size),
             'message_id': message.id
         })
     else:  # movie
         content_index[title][parsed['year']]['movie'].append({
             'quality': parsed['quality'],
             'codec': parsed['codec'],
-            'size': format_file_size(message.media.file_size),
+            'size': format_file_size(media.file_size),
             'message_id': message.id
         })
 
