@@ -2,6 +2,7 @@
 Pyrofork client management with peer ID error handling
 """
 
+import logging
 from pyrogram import Client
 from pyrogram.errors import AuthKeyDuplicated, UserDeactivated
 from bot.core.config import Config
@@ -10,6 +11,8 @@ import pyrogram.utils as pyroutils
 # Fix for new Telegram peer ID formats
 pyroutils.MIN_CHAT_ID = -999999999999
 pyroutils.MIN_CHANNEL_ID = -100999999999999
+
+LOGGER = logging.getLogger(__name__)
 
 class TgClient:
     """Manages bot and user Telegram clients with Pyrofork"""
@@ -38,20 +41,31 @@ class TgClient:
             )
             
             await cls.bot.start()
+            bot_info = await cls.bot.get_me()
+            LOGGER.info(f"✅ Bot client started as @{bot_info.username}")
+
             await cls.user.start()
+            user_info = await cls.user.get_me()
+            LOGGER.info(f"✅ User client started as @{user_info.username}")
             
-        except (AuthKeyDuplicated, UserDeactivated):
+        except AuthKeyDuplicated:
+            LOGGER.error("❌ Auth key duplicated. Please regenerate the user session string.")
             raise
-        except Exception:
+        except UserDeactivated:
+            LOGGER.error("❌ User account is deactivated. Check the user session.")
+            raise
+        except Exception as e:
+            LOGGER.error(f"❌ Failed to initialize clients: {e}")
             raise
     
     @classmethod
     async def stop(cls):
         """Stop both clients gracefully"""
         try:
-            if cls.bot:
+            if cls.bot and cls.bot.is_connected:
                 await cls.bot.stop()
-            if cls.user:
+            if cls.user and cls.user.is_connected:
                 await cls.user.stop()
-        except Exception:
-            pass
+            LOGGER.info("✅ All clients stopped gracefully.")
+        except Exception as e:
+            LOGGER.error(f"❌ Error stopping clients: {e}")
