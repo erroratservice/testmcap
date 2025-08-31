@@ -10,7 +10,6 @@ from bot.core.client import TgClient
 from bot.core.handlers import register_handlers
 from bot.database.mongodb import MongoDB
 
-# Re-added for startup confirmation
 LOGGER = logging.getLogger(__name__)
 
 async def check_and_notify_interrupted_scans():
@@ -30,11 +29,9 @@ async def check_and_notify_interrupted_scans():
         
         try:
             await TgClient.bot.send_message(Config.OWNER_ID, notification_text)
-        except Exception:
-            # Fails silently if owner chat is not reachable
-            pass
+        except Exception as e:
+            LOGGER.warning(f"Failed to send interruption notification: {e}")
         
-        # Clear the decks for the new session
         await MongoDB.clear_all_scans()
 
 async def main():
@@ -42,6 +39,7 @@ async def main():
     try:
         Config.load()
         Config.validate()
+        LOGGER.info("✅ Configuration loaded and validated.")
         
         os.makedirs(Config.DOWNLOAD_DIR, exist_ok=True)
         
@@ -49,25 +47,21 @@ async def main():
             try:
                 await MongoDB.initialize()
             except Exception as e:
-                # Bot can run without DB, but some features will be disabled
-                pass
+                LOGGER.warning(f"⚠️ Database connection failed: {e}. Some features will be disabled.")
         
         await TgClient.initialize()
         
-        # Check for interrupted scans after clients are ready
         await check_and_notify_interrupted_scans()
         
         register_handlers()
         
-        # Re-added startup confirmation message
         LOGGER.info("🚀 Media Indexing Bot started successfully!")
         
         await asyncio.Future()
         
     except KeyboardInterrupt:
-        pass
+        LOGGER.info("👋 Bot stopped by user.")
     except Exception as e:
-        # Re-added error logging for startup failures
         LOGGER.error(f"💥 Startup failed: {e}")
         raise
     finally:
