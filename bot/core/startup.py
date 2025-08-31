@@ -1,5 +1,5 @@
 """
-Bot startup sequence for Media Indexing Bot
+Clean bot startup sequence
 """
 
 import asyncio
