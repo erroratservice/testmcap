@@ -4,12 +4,14 @@ Enhanced Telegram client management with error handling
 
 import asyncio
 import logging
-from pyrogram import Client
+from pyrogram import Client, enums, utils as pyroutils
 from pyrogram.errors import AuthKeyDuplicated, UserDeactivated, PeerIdInvalid
 from bot.core.config import Config
 
 LOGGER = logging.getLogger(__name__)
 
+pyroutils.MIN_CHAT_ID = -999999999999
+pyroutils.MIN_CHANNEL_ID = -100999999999999
 class TgClient:
     """Manages bot and user Telegram clients with enhanced error handling"""
     
