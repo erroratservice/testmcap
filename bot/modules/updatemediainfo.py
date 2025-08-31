@@ -1,5 +1,5 @@
 """
-MediaInfo update with comprehensive debugging and fallback strategies
+MediaInfo update with head+tail chunk download and metadata merging
 """
 
 import asyncio
@@ -17,9 +17,9 @@ LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 
 async def updatemediainfo_handler(client, message):
-    """Handler with enhanced debugging"""
+    """Handler with head+tail metadata merging strategy"""
     try:
-        LOGGER.info("🚀 Starting updatemediainfo with MediaInfo CLI approach")
+        LOGGER.info("🚀 Starting updatemediainfo with head+tail merge strategy")
         
         channels = await get_target_channels(message)
         if not channels:
@@ -28,14 +28,14 @@ async def updatemediainfo_handler(client, message):
             return
         
         for channel_id in channels:
-            await process_channel_with_mediainfo_cli(channel_id, message)
+            await process_channel_with_head_tail_merge(channel_id, message)
             
     except Exception as e:
         LOGGER.error(f"💥 Handler error: {e}", exc_info=True)
         await send_message(message, f"❌ **Error:** {e}")
 
-async def process_channel_with_mediainfo_cli(channel_id, message):
-    """Process channel with comprehensive debugging"""
+async def process_channel_with_head_tail_merge(channel_id, message):
+    """Process channel with head+tail metadata merging"""
     try:
         # Access channel
         chat = await TgClient.user.get_chat(channel_id)
@@ -43,12 +43,16 @@ async def process_channel_with_mediainfo_cli(channel_id, message):
         
         progress_msg = await send_message(message,
             f"🔄 **Processing:** {chat.title}\n"
-            f"📊 **Method:** MediaInfo CLI (Enhanced Debug)\n"
+            f"📊 **Method:** Head+Tail MediaInfo Merge\n"
+            f"🎯 **Strategy:** 10MB Head + 5MB Tail → Merge Metadata\n"
             f"🔍 **Status:** Scanning messages...")
         
         processed = 0
         errors = 0
         skipped = 0
+        head_only_success = 0
+        tail_success = 0
+        merge_success = 0
         total_messages = 0
         media_found = 0
         
@@ -57,17 +61,13 @@ async def process_channel_with_mediainfo_cli(channel_id, message):
             message_count += 1
             total_messages += 1
             
-            LOGGER.debug(f"📨 Processing message {message_count}: ID={msg.id}")
-            
             # Check for media
             if not await has_media(msg):
-                LOGGER.debug(f"⏭️ Skipping message {msg.id}: No media")
                 skipped += 1
                 continue
             
             # Check if already processed
             if await already_has_mediainfo(msg):
-                LOGGER.debug(f"⏭️ Skipping message {msg.id}: Already has MediaInfo")
                 skipped += 1
                 continue
             
@@ -75,16 +75,21 @@ async def process_channel_with_mediainfo_cli(channel_id, message):
             LOGGER.info(f"🎯 Processing media message {msg.id}")
             
             try:
-                success, error_details = await process_telegram_media_with_debug(TgClient.user, msg)
+                success, method = await process_with_head_tail_merge(TgClient.user, msg)
                 if success:
                     processed += 1
-                    LOGGER.info(f"✅ Successfully updated message {msg.id}")
+                    if method == "head_only":
+                        head_only_success += 1
+                    elif method == "tail":
+                        tail_success += 1
+                    elif method == "merge":
+                        merge_success += 1
+                    LOGGER.info(f"✅ Updated message {msg.id} using {method}")
                 else:
                     errors += 1
-                    LOGGER.error(f"❌ Failed to update message {msg.id}: {error_details}")
-                    
+                    LOGGER.error(f"❌ Failed to update message {msg.id}")
             except Exception as e:
-                LOGGER.error(f"💥 Exception processing message {msg.id}: {e}", exc_info=True)
+                LOGGER.error(f"💥 Exception processing {msg.id}: {e}")
                 errors += 1
             
             # Progress update
@@ -92,7 +97,8 @@ async def process_channel_with_mediainfo_cli(channel_id, message):
                 await edit_message(progress_msg,
                     f"🔄 **Processing:** {chat.title}\n"
                     f"📊 **Messages:** {total_messages} | **Media:** {media_found}\n"
-                    f"✅ **Updated:** {processed} | ❌ **Errors:** {errors} | ⏭️ **Skipped:** {skipped}")
+                    f"✅ **Updated:** {processed} | ❌ **Errors:** {errors}\n"
+                    f"🎯 **Head:** {head_only_success} | 🎯 **Tail:** {tail_success} | 🔗 **Merge:** {merge_success}")
                 await asyncio.sleep(0.5)
         
         # Final results
@@ -102,213 +108,327 @@ async def process_channel_with_mediainfo_cli(channel_id, message):
             f"📁 **Media Found:** {media_found}\n"
             f"✅ **Updated:** {processed} files\n"
             f"❌ **Errors:** {errors} files\n"
-            f"⏭️ **Skipped:** {skipped} files"
+            f"⏭️ **Skipped:** {skipped} files\n\n"
+            f"🎯 **Head Only:** {head_only_success}\n"
+            f"🎯 **Tail Success:** {tail_success}\n"
+            f"🔗 **Merge Success:** {merge_success}"
         )
         
         await edit_message(progress_msg, final_stats)
-        LOGGER.info(f"🎉 Final results: Updated={processed}, Errors={errors}, Skipped={skipped}")
         
     except Exception as e:
-        LOGGER.error(f"💥 Channel processing error: {e}", exc_info=True)
+        LOGGER.error(f"💥 Channel processing error: {e}")
         await send_message(message, f"❌ **Error:** {str(e)}")
 
-async def process_telegram_media_with_debug(client, message):
-    """
-    Process Telegram media with comprehensive debugging
-    """
-    download_path = None
+async def process_with_head_tail_merge(client, message):
+    """Process message with head+tail merge strategy"""
     try:
-        LOGGER.info(f"🔄 Starting debug processing for message {message.id}")
-        
-        # Step 1: Get media object
         media = None
-        media_type = None
         if message.video:
             media = message.video
-            media_type = "video"
         elif message.audio:
             media = message.audio
-            media_type = "audio"
         elif message.document:
             media = message.document
-            media_type = "document"
         else:
-            LOGGER.error(f"❌ No supported media found in message {message.id}")
-            return False, "No supported media type"
+            return False, "none"
         
         filename = str(media.file_name) if media.file_name else f"media_{message.id}"
         size = media.file_size
         
-        LOGGER.info(f"📁 Media info: {media_type}, filename={filename}, size={size/1024/1024:.1f}MB")
+        LOGGER.info(f"📁 Processing: {filename} ({size/1024/1024:.1f}MB)")
         
-        # Step 2: Create temp file and download
-        rand_str = f"debug_{message.id}"
-        download_path = f"/tmp/{rand_str}_{filename.replace('/', '_')}"
+        # Strategy 1: Try head chunk first (10MB)
+        LOGGER.info("🎯 Strategy 1: Trying 10MB head chunk")
+        head_metadata = await extract_metadata_from_chunk(client, message, filename, "head", 10)
         
-        LOGGER.debug(f"📥 Download path: {download_path}")
+        if head_metadata and has_video_audio_streams(head_metadata):
+            LOGGER.info("✅ Head chunk has complete metadata")
+            success = await update_caption_with_metadata(message, head_metadata)
+            if success:
+                return True, "head_only"
         
-        # Smart download strategy with enhanced logging
-        if int(size) <= 50000000:  # 50MB - full download
-            LOGGER.info(f"📥 Full download: {filename} ({size/1024/1024:.1f}MB)")
-            try:
-                await message.download(download_path)
-                LOGGER.info(f"✅ Full download completed")
-            except Exception as e:
-                LOGGER.error(f"❌ Full download failed: {e}")
-                return False, f"Full download failed: {e}"
-        else:  # Large files - partial download with more chunks
-            LOGGER.info(f"📥 Partial download: {filename} ({size/1024/1024:.1f}MB, 10 chunks)")
-            try:
-                chunk_count = 0
-                async for chunk in client.stream_media(message, limit=10):  # Increased from 5 to 10
-                    with open(download_path, "ab") as f:
-                        f.write(chunk)
-                    chunk_count += 1
-                LOGGER.info(f"✅ Partial download completed: {chunk_count} chunks")
-            except Exception as e:
-                LOGGER.error(f"❌ Partial download failed: {e}")
-                return False, f"Partial download failed: {e}"
+        # Strategy 2: Try tail chunk (5MB)
+        LOGGER.info("🎯 Strategy 2: Trying 5MB tail chunk")  
+        tail_metadata = await extract_metadata_from_chunk(client, message, filename, "tail", 5, size)
         
-        # Step 3: Verify downloaded file
-        if not os.path.exists(download_path):
-            LOGGER.error(f"❌ Downloaded file not found: {download_path}")
-            return False, "Downloaded file not found"
+        if tail_metadata and has_video_audio_streams(tail_metadata):
+            LOGGER.info("✅ Tail chunk has complete metadata")
+            success = await update_caption_with_metadata(message, tail_metadata)
+            if success:
+                return True, "tail"
         
-        downloaded_size = os.path.getsize(download_path)
-        LOGGER.info(f"📊 Downloaded file size: {downloaded_size/1024/1024:.1f}MB")
+        # Strategy 3: Merge head + tail metadata
+        LOGGER.info("🎯 Strategy 3: Merging head + tail metadata")
+        merged_metadata = merge_mediainfo_metadata(head_metadata, tail_metadata)
         
-        if downloaded_size == 0:
-            LOGGER.error(f"❌ Downloaded file is empty")
-            return False, "Downloaded file is empty"
+        if merged_metadata and has_video_audio_streams(merged_metadata):
+            LOGGER.info("✅ Merged metadata has complete streams")
+            success = await update_caption_with_metadata(message, merged_metadata)
+            if success:
+                return True, "merge"
         
-        # Step 4: Extract MediaInfo with enhanced error handling
-        LOGGER.debug(f"🔍 Running MediaInfo CLI on: {download_path}")
-        
-        try:
-            # Get both text and JSON output
-            mediainfo_text = await async_subprocess_debug(f"mediainfo '{download_path}'")
-            mediainfo_json_text = await async_subprocess_debug(f"mediainfo '{download_path}' --Output=JSON")
-            
-            LOGGER.debug(f"📊 MediaInfo text output length: {len(mediainfo_text) if mediainfo_text else 0}")
-            LOGGER.debug(f"📊 MediaInfo JSON output length: {len(mediainfo_json_text) if mediainfo_json_text else 0}")
-            
-            if not mediainfo_text and not mediainfo_json_text:
-                LOGGER.error(f"❌ MediaInfo CLI produced no output")
-                return False, "MediaInfo CLI produced no output"
-            
-            # Show first 500 chars of output for debugging
-            if mediainfo_text:
-                LOGGER.debug(f"📝 MediaInfo text preview: {mediainfo_text[:500]}...")
-            if mediainfo_json_text:
-                LOGGER.debug(f"📝 MediaInfo JSON preview: {mediainfo_json_text[:500]}...")
-            
-        except Exception as e:
-            LOGGER.error(f"❌ MediaInfo CLI execution failed: {e}")
-            return False, f"MediaInfo CLI execution failed: {e}"
-        
-        # Step 5: Parse JSON output
-        mediainfo_json = None
-        if mediainfo_json_text:
-            try:
-                mediainfo_json = json.loads(mediainfo_json_text)
-                track_count = len(mediainfo_json.get("media", {}).get("track", []))
-                LOGGER.info(f"✅ Parsed MediaInfo JSON: {track_count} tracks found")
-            except json.JSONDecodeError as e:
-                LOGGER.error(f"❌ MediaInfo JSON parse failed: {e}")
-                return False, f"MediaInfo JSON parse failed: {e}"
-        else:
-            LOGGER.error(f"❌ No MediaInfo JSON output to parse")
-            return False, "No MediaInfo JSON output"
-        
-        # Step 6: Extract caption metadata
-        caption_data = extract_caption_metadata_debug(mediainfo_json, message.id)
-        if not caption_data:
-            LOGGER.error(f"❌ No usable metadata extracted for caption")
-            return False, "No usable metadata extracted"
-        
-        LOGGER.info(f"✅ Metadata extracted: Video={bool(caption_data.get('video'))}, Audio={len(caption_data.get('audio', []))}")
-        
-        # Step 7: Generate enhanced caption
-        current_caption = message.caption or ""
-        enhanced_caption = generate_mediainfo_caption_debug(current_caption, caption_data, message.id)
-        
-        LOGGER.debug(f"📝 Current caption length: {len(current_caption)}")
-        LOGGER.debug(f"📝 Enhanced caption length: {len(enhanced_caption)}")
-        
-        if current_caption == enhanced_caption:
-            LOGGER.warning(f"⚠️ No caption changes detected for message {message.id}")
-            return False, "No caption changes detected"
-        
-        # Step 8: Update caption
-        success = await safe_edit_caption_debug(message, current_caption, enhanced_caption)
-        
-        if success:
-            LOGGER.info(f"✅ Caption updated successfully for message {message.id}")
-            return True, "Success"
-        else:
-            LOGGER.warning(f"⚠️ Caption update failed for message {message.id}")
-            return False, "Caption update failed"
+        LOGGER.warning("⚠️ All strategies failed - no usable metadata found")
+        return False, "failed"
         
     except Exception as e:
-        LOGGER.error(f"💥 Processing exception for message {message.id}: {e}", exc_info=True)
-        return False, f"Processing exception: {e}"
+        LOGGER.error(f"💥 Head+tail processing error: {e}")
+        return False, "error"
+
+async def extract_metadata_from_chunk(client, message, filename, chunk_type, size_mb, total_size=None):
+    """Extract MediaInfo metadata from head or tail chunk"""
+    download_path = None
+    try:
+        LOGGER.debug(f"📥 Downloading {size_mb}MB {chunk_type} chunk")
+        
+        # Create temp file
+        rand_str = f"{chunk_type}_{message.id}"
+        download_path = f"/tmp/{rand_str}_{filename.replace('/', '_')}"
+        
+        if chunk_type == "head":
+            # Download head chunk
+            success = await download_head_chunk(client, message, download_path, size_mb)
+        else:
+            # Download tail chunk
+            success = await download_tail_chunk(client, message, download_path, size_mb, total_size)
+        
+        if not success:
+            LOGGER.warning(f"⚠️ {chunk_type} chunk download failed")
+            return None
+        
+        # Extract MediaInfo
+        mediainfo_json_text = await async_subprocess(f"mediainfo '{download_path}' --Output=JSON")
+        
+        if not mediainfo_json_text:
+            LOGGER.warning(f"⚠️ MediaInfo produced no output for {chunk_type} chunk")
+            return None
+        
+        try:
+            metadata = json.loads(mediainfo_json_text)
+            tracks = metadata.get("media", {}).get("track", [])
+            LOGGER.debug(f"📊 {chunk_type} chunk: {len(tracks)} tracks found")
+            return metadata
+        except json.JSONDecodeError as e:
+            LOGGER.warning(f"⚠️ MediaInfo JSON parse failed for {chunk_type} chunk: {e}")
+            return None
+        
+    except Exception as e:
+        LOGGER.error(f"💥 {chunk_type} chunk processing error: {e}")
+        return None
     finally:
-        # Cleanup
         if download_path and os.path.exists(download_path):
             try:
                 os.remove(download_path)
-                LOGGER.debug(f"🗑️ Cleaned up: {download_path}")
             except:
                 pass
 
-async def async_subprocess_debug(cmd):
-    """Run subprocess with enhanced debugging"""
+async def download_head_chunk(client, message, download_path, size_mb):
+    """Download head chunk from beginning of file"""
     try:
-        LOGGER.debug(f"🔧 Running command: {cmd}")
+        chunk_size = 100 * 1024  # 100KB per chunk
+        max_chunks = int((size_mb * 1024 * 1024) / chunk_size)
         
+        chunk_count = 0
+        async for chunk in client.stream_media(message, limit=max_chunks):
+            with open(download_path, "ab") as f:
+                f.write(chunk)
+            chunk_count += 1
+            if chunk_count >= max_chunks:
+                break
+        
+        if chunk_count > 0 and os.path.exists(download_path):
+            file_size = os.path.getsize(download_path)
+            LOGGER.debug(f"✅ Head chunk downloaded: {file_size/1024/1024:.1f}MB")
+            return True
+        
+        return False
+        
+    except Exception as e:
+        LOGGER.error(f"💥 Head chunk download error: {e}")
+        return False
+
+async def download_tail_chunk(client, message, download_path, size_mb, total_size):
+    """Download tail chunk from end of file"""
+    try:
+        chunk_size = 100 * 1024  # 100KB per chunk
+        tail_size = size_mb * 1024 * 1024
+        
+        if total_size <= tail_size:
+            # File is smaller than tail size, download all
+            return await download_head_chunk(client, message, download_path, total_size // (1024 * 1024) + 1)
+        
+        # Calculate chunks to skip for tail
+        start_offset = total_size - tail_size
+        chunks_to_skip = int(start_offset / chunk_size)
+        chunks_to_download = int(tail_size / chunk_size)
+        
+        LOGGER.debug(f"📊 Tail: skip {chunks_to_skip}, download {chunks_to_download}")
+        
+        chunk_count = 0
+        downloaded_count = 0
+        
+        async for chunk in client.stream_media(message, limit=chunks_to_skip + chunks_to_download):
+            chunk_count += 1
+            
+            # Skip chunks until tail section
+            if chunk_count <= chunks_to_skip:
+                continue
+            
+            # Download tail chunks
+            with open(download_path, "ab") as f:
+                f.write(chunk)
+            downloaded_count += 1
+            
+            if downloaded_count >= chunks_to_download:
+                break
+        
+        if downloaded_count > 0 and os.path.exists(download_path):
+            file_size = os.path.getsize(download_path)
+            LOGGER.debug(f"✅ Tail chunk downloaded: {file_size/1024/1024:.1f}MB")
+            return True
+        
+        return False
+        
+    except Exception as e:
+        LOGGER.error(f"💥 Tail chunk download error: {e}")
+        return False
+
+def merge_mediainfo_metadata(head_metadata, tail_metadata):
+    """Intelligently merge MediaInfo metadata from head and tail chunks"""
+    try:
+        LOGGER.debug("🔗 Merging head and tail metadata")
+        
+        if not head_metadata and not tail_metadata:
+            return None
+        
+        if not head_metadata:
+            LOGGER.debug("📊 Using tail metadata only")
+            return tail_metadata
+        
+        if not tail_metadata:
+            LOGGER.debug("📊 Using head metadata only") 
+            return head_metadata
+        
+        # Start with head metadata as base
+        merged = json.loads(json.dumps(head_metadata))  # Deep copy
+        
+        head_tracks = head_metadata.get("media", {}).get("track", [])
+        tail_tracks = tail_metadata.get("media", {}).get("track", [])
+        
+        LOGGER.debug(f"📊 Head tracks: {len(head_tracks)}, Tail tracks: {len(tail_tracks)}")
+        
+        # Merge tracks intelligently
+        merged_tracks = []
+        added_stream_types = set()
+        
+        # Add all head tracks
+        for track in head_tracks:
+            track_type = track.get("@type", "").lower()
+            merged_tracks.append(track)
+            added_stream_types.add(track_type)
+        
+        # Add missing stream types from tail
+        for track in tail_tracks:
+            track_type = track.get("@type", "").lower()
+            
+            # Add if stream type not already present
+            if track_type not in added_stream_types:
+                merged_tracks.append(track)
+                added_stream_types.add(track_type)
+                LOGGER.debug(f"📊 Added {track_type} track from tail")
+            else:
+                # Update existing track with missing fields from tail
+                for existing_track in merged_tracks:
+                    if existing_track.get("@type", "").lower() == track_type:
+                        # Merge missing fields
+                        for key, value in track.items():
+                            if key not in existing_track or not existing_track[key]:
+                                existing_track[key] = value
+                                LOGGER.debug(f"📊 Updated {key} in {track_type} track from tail")
+        
+        # Update merged metadata
+        if "media" not in merged:
+            merged["media"] = {}
+        merged["media"]["track"] = merged_tracks
+        
+        LOGGER.info(f"✅ Merged metadata: {len(merged_tracks)} tracks, types: {list(added_stream_types)}")
+        return merged
+        
+    except Exception as e:
+        LOGGER.error(f"💥 Metadata merge error: {e}")
+        return head_metadata or tail_metadata
+
+def has_video_audio_streams(metadata):
+    """Check if metadata contains actual video or audio streams"""
+    try:
+        if not metadata:
+            return False
+        
+        tracks = metadata.get("media", {}).get("track", [])
+        
+        has_video = False
+        has_audio = False
+        
+        for track in tracks:
+            track_type = track.get("@type", "").lower()
+            if track_type == "video":
+                has_video = True
+            elif track_type == "audio":
+                has_audio = True
+        
+        result = has_video or has_audio
+        LOGGER.debug(f"📊 Stream check: Video={has_video}, Audio={has_audio}, HasStreams={result}")
+        return result
+        
+    except Exception as e:
+        LOGGER.error(f"💥 Stream check error: {e}")
+        return False
+
+async def update_caption_with_metadata(message, metadata):
+    """Update caption with MediaInfo metadata"""
+    try:
+        caption_data = extract_caption_metadata(metadata)
+        if not caption_data:
+            LOGGER.warning("⚠️ No caption data extracted")
+            return False
+        
+        current_caption = message.caption or ""
+        enhanced_caption = generate_mediainfo_caption(current_caption, caption_data)
+        
+        if current_caption == enhanced_caption:
+            LOGGER.warning("⚠️ No caption changes generated")
+            return False
+        
+        return await safe_edit_caption(message, current_caption, enhanced_caption)
+        
+    except Exception as e:
+        LOGGER.error(f"💥 Caption update error: {e}")
+        return False
+
+async def async_subprocess(cmd):
+    """Run subprocess command"""
+    try:
         proc = await asyncio.create_subprocess_shell(
             cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
         stdout, stderr = await proc.communicate()
-        
-        LOGGER.debug(f"📊 Command return code: {proc.returncode}")
-        
-        if stderr:
-            stderr_text = stderr.decode()
-            LOGGER.warning(f"⚠️ Command stderr: {stderr_text[:500]}...")
-        
-        if stdout:
-            stdout_text = stdout.decode()
-            LOGGER.debug(f"✅ Command stdout length: {len(stdout_text)}")
-            return stdout_text
-        else:
-            LOGGER.warning(f"⚠️ Command produced no stdout")
-            return ""
-        
+        return stdout.decode() if stdout else ""
     except Exception as e:
-        LOGGER.error(f"💥 Subprocess error: {e}")
+        LOGGER.error(f"Subprocess error: {e}")
         return ""
 
-def extract_caption_metadata_debug(mediainfo_json, message_id):
-    """Extract metadata with detailed debugging"""
+def extract_caption_metadata(mediainfo_json):
+    """Extract metadata from MediaInfo JSON"""
     try:
-        LOGGER.debug(f"🔍 Extracting metadata for message {message_id}")
-        
-        if not mediainfo_json:
-            LOGGER.error(f"❌ No MediaInfo JSON provided for message {message_id}")
-            return None
-        
         tracks = mediainfo_json.get("media", {}).get("track", [])
-        LOGGER.debug(f"📊 Processing {len(tracks)} tracks")
         
         video_info = None
         audio_tracks = []
         
-        for i, track in enumerate(tracks):
+        for track in tracks:
             track_type = track.get("@type", "").lower()
-            LOGGER.debug(f"🎬 Track {i}: Type={track_type}")
             
             if track_type == "video" and not video_info:
                 codec = track.get("Format", "Unknown")
@@ -320,38 +440,30 @@ def extract_caption_metadata_debug(mediainfo_json, message_id):
                     "width": int(width) if width else None,
                     "height": int(height) if height else None
                 }
-                LOGGER.debug(f"📹 Video info: {video_info}")
                 
             elif track_type == "audio":
                 codec = track.get("Format", "Unknown")
                 language = track.get("Language", "Unknown")
                 channels = track.get("Channels")
                 
-                audio_track = {
+                audio_tracks.append({
                     "codec": codec,
                     "language": language,
                     "channels": int(channels) if channels else 1
-                }
-                audio_tracks.append(audio_track)
-                LOGGER.debug(f"🎵 Audio track: {audio_track}")
+                })
         
-        result = {
+        return {
             "video": video_info,
             "audio": audio_tracks
         }
         
-        LOGGER.info(f"✅ Metadata extracted: Video={bool(video_info)}, Audio={len(audio_tracks)} tracks")
-        return result
-        
     except Exception as e:
-        LOGGER.error(f"💥 Metadata extraction error for message {message_id}: {e}")
+        LOGGER.error(f"Metadata extraction error: {e}")
         return None
 
-def generate_mediainfo_caption_debug(original_caption, metadata, message_id):
-    """Generate caption with debugging"""
+def generate_mediainfo_caption(original_caption, metadata):
+    """Generate enhanced caption"""
     try:
-        LOGGER.debug(f"✏️ Generating caption for message {message_id}")
-        
         enhanced = original_caption.strip() if original_caption else ""
         mediainfo_lines = []
         
@@ -361,7 +473,6 @@ def generate_mediainfo_caption_debug(original_caption, metadata, message_id):
             codec = video["codec"]
             height = video.get("height")
             
-            # Resolution
             resolution = ""
             if height:
                 if height >= 2160:
@@ -380,19 +491,16 @@ def generate_mediainfo_caption_debug(original_caption, metadata, message_id):
                 video_line += f" {resolution}"
             
             mediainfo_lines.append(video_line)
-            LOGGER.debug(f"📹 Video line: {video_line}")
         
         # Audio info
         audio_tracks = metadata.get("audio", [])
         if audio_tracks:
             count = len(audio_tracks)
             
-            # Languages
             languages = []
             for audio in audio_tracks:
                 lang = audio.get("language", "Unknown").upper()
                 if lang and lang not in ["UNKNOWN", "UND"] and lang not in languages:
-                    # Standardize
                     lang_map = {"EN": "ENG", "HI": "HIN", "ES": "SPA"}
                     lang = lang_map.get(lang, lang)
                     languages.append(lang)
@@ -402,14 +510,12 @@ def generate_mediainfo_caption_debug(original_caption, metadata, message_id):
                 audio_line += f" ({', '.join(languages[:3])})"
             
             mediainfo_lines.append(audio_line)
-            LOGGER.debug(f"🎵 Audio line: {audio_line}")
         
         # Combine
         if mediainfo_lines:
             mediainfo_section = "\n\n" + "\n".join(mediainfo_lines)
             enhanced_caption = enhanced + mediainfo_section
             
-            # Telegram limit
             if len(enhanced_caption) > 1020:
                 max_original = 1020 - len(mediainfo_section) - 5
                 if max_original > 0:
@@ -417,65 +523,44 @@ def generate_mediainfo_caption_debug(original_caption, metadata, message_id):
                 else:
                     enhanced_caption = mediainfo_section
             
-            LOGGER.debug(f"✅ Generated caption: {len(enhanced_caption)} chars, {len(mediainfo_lines)} info lines")
             return enhanced_caption
-        else:
-            LOGGER.warning(f"⚠️ No MediaInfo lines generated for message {message_id}")
-            return enhanced
+        
+        return enhanced
         
     except Exception as e:
-        LOGGER.error(f"💥 Caption generation error for message {message_id}: {e}")
+        LOGGER.error(f"Caption generation error: {e}")
         return original_caption or ""
-
-async def safe_edit_caption_debug(msg, current_caption, new_caption):
-    """Safe caption editing with debugging"""
-    try:
-        LOGGER.debug(f"📝 Attempting caption update for message {msg.id}")
-        
-        if current_caption == new_caption:
-            LOGGER.warning(f"⚠️ Captions are identical for message {msg.id}")
-            return False
-        
-        if "Video:" not in new_caption and "Audio:" not in new_caption:
-            LOGGER.warning(f"⚠️ No MediaInfo content in caption for message {msg.id}")
-            return False
-        
-        try:
-            await TgClient.user.edit_message_caption(
-                chat_id=msg.chat.id,
-                message_id=msg.id,
-                caption=new_caption
-            )
-            LOGGER.info(f"✅ Caption edit successful for message {msg.id}")
-            return True
-            
-        except MessageNotModified as e:
-            LOGGER.warning(f"⚠️ Message not modified for message {msg.id}: {e}")
-            return False
-        except Exception as e:
-            LOGGER.error(f"❌ Caption edit failed for message {msg.id}: {e}")
-            return False
-        
-    except Exception as e:
-        LOGGER.error(f"💥 Caption edit exception for message {msg.id}: {e}")
-        return False
 
 # Helper functions
 async def has_media(msg):
-    """Check if message has media"""
-    result = bool(msg.video or msg.audio or msg.document)
-    LOGGER.debug(f"📱 Message {msg.id} has media: {result}")
-    return result
+    return bool(msg.video or msg.audio or msg.document)
 
 async def already_has_mediainfo(msg):
-    """Check if already has MediaInfo"""
     caption = msg.caption or ""
-    result = "Video:" in caption and "Audio:" in caption
-    LOGGER.debug(f"📝 Message {msg.id} already has MediaInfo: {result}")
-    return result
+    return "Video:" in caption and "Audio:" in caption
+
+async def safe_edit_caption(msg, current_caption, new_caption):
+    try:
+        if current_caption == new_caption:
+            return False
+        
+        if "Video:" not in new_caption and "Audio:" not in new_caption:
+            return False
+        
+        await TgClient.user.edit_message_caption(
+            chat_id=msg.chat.id,
+            message_id=msg.id,
+            caption=new_caption
+        )
+        return True
+        
+    except MessageNotModified:
+        return False
+    except Exception as e:
+        LOGGER.error(f"Caption edit error: {e}")
+        return False
 
 async def get_target_channels(message):
-    """Extract channel IDs"""
     try:
         if len(message.command) > 1:
             channel_id = message.command[1]
@@ -486,6 +571,5 @@ async def get_target_channels(message):
             else:
                 return [channel_id]
         return []
-    except Exception as e:
-        LOGGER.error(f"Channel parsing error: {e}")
+    except:
         return []
