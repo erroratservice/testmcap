@@ -13,7 +13,7 @@ class MongoDB:
     
     client = None
     db = None
-    collection = None # Using a single collection for all data
+    collection = None 
 
     @classmethod
     async def initialize(cls):
@@ -21,7 +21,7 @@ class MongoDB:
         try:
             cls.client = AsyncIOMotorClient(Config.DATABASE_URL)
             cls.db = cls.client.mediaindexbot
-            cls.collection = cls.db.mcapindexer # All data will be in this collection
+            cls.collection = cls.db.mcapindexer
             await cls.client.admin.command('ismaster')
             LOGGER.info("✅ MongoDB connected successfully.")
         except Exception as e:
@@ -34,6 +34,23 @@ class MongoDB:
         if cls.client:
             cls.client.close()
             LOGGER.info("✅ MongoDB connection closed.")
+
+    # --- Status Message Management ---
+    @classmethod
+    async def set_status_message(cls, chat_id, message_id):
+        """Saves the chat and message ID of the central status message."""
+        if cls.collection is None: return
+        await cls.collection.update_one(
+            {'_id': 'status_message_tracker'},
+            {'$set': {'chat_id': chat_id, 'message_id': message_id}},
+            upsert=True
+        )
+
+    @classmethod
+    async def get_status_message(cls):
+        """Retrieves the location of the central status message."""
+        if cls.collection is None: return None
+        return await cls.collection.find_one({'_id': 'status_message_tracker'})
 
     # --- Failed IDs Management ---
     @classmethod
@@ -61,12 +78,13 @@ class MongoDB:
 
     # --- Active Scan Tracking ---
     @classmethod
-    async def start_scan(cls, scan_id, channel_id, user_id, total_messages, chat_title):
+    async def start_scan(cls, scan_id, channel_id, user_id, total_messages, chat_title, operation):
         """Create a new scan document in the main collection."""
         if cls.collection is None: return
         await cls.collection.insert_one({
             '_id': scan_id,
-            'type': 'active_scan', # Sub-category for this document
+            'type': 'active_scan',
+            'operation': operation,
             'channel_id': channel_id,
             'user_id': user_id,
             'total_messages': total_messages,
