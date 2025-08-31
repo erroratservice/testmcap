@@ -11,7 +11,7 @@ from bot.database.mongodb import MongoDB
 
 async def check_and_notify_interrupted_scans():
     """Check for interrupted scans and notify the owner."""
-    if not Config.DATABASE_URL or not MongoDB.db:
+    if not Config.DATABASE_URL or MongoDB.db is None:
         return
     
     interrupted = await MongoDB.get_interrupted_scans()
