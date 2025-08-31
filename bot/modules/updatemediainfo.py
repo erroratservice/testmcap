@@ -15,7 +15,11 @@ from bot.database.mongodb import MongoDB
 
 LOGGER = logging.getLogger(__name__)
 
-# ... (Configuration and other functions like ffprobe helpers are the same)
+# Configuration
+CHUNK_STEPS = [5, 10, 15]
+FULL_DOWNLOAD_LIMIT = 200 * 1024 * 1024
+MEDIAINFO_TIMEOUT = 30
+FFPROBE_TIMEOUT = 60
 
 async def updatemediainfo_handler(client, message):
     """Handler with database-driven force-processing."""
@@ -37,11 +41,9 @@ async def updatemediainfo_handler(client, message):
 
         if is_force_run:
             LOGGER.info(f"🚀 Starting FORCE processing for channel {channel_id}")
-            # Run the task in the background
             asyncio.create_task(force_process_channel(channel_id, message))
         else:
             LOGGER.info(f"🚀 Starting standard scan for channel {channel_id}")
-            # Run the task in the background
             asyncio.create_task(process_channel_enhanced(channel_id, message))
             
     except Exception as e:
@@ -77,11 +79,20 @@ async def process_channel_enhanced(channel_id, message):
             
             stats["media"] += 1
             LOGGER.info(f"🎯 Processing media message {msg.id} in {chat.title}")
-            
+
             try:
-                # ... (processing logic)
+                success, method = await process_message_enhanced(TgClient.user, msg)
+                if success:
+                    stats["processed"] += 1
+                    if "chunk" in method: stats["chunk_success"][int(method.replace('chunk', ''))] += 1
+                    elif method == "full": stats["full_success"] += 1
+                else:
+                    stats["errors"] += 1
+                    stats["failed_ids"].append(msg.id)
             except Exception as e:
-                # ... (error handling)
+                LOGGER.error(f"❌ Error processing message {msg.id}: {e}")
+                stats["errors"] += 1
+                stats["failed_ids"].append(msg.id)
 
             if i % 5 == 0:
                 await MongoDB.update_scan_progress(scan_id, stats["total"])
@@ -98,4 +109,43 @@ async def process_channel_enhanced(channel_id, message):
     finally:
         await MongoDB.end_scan(scan_id)
 
-# ... (rest of the file remains the same, but without any `edit_message` calls for progress)
+async def force_process_channel(channel_id, message):
+    """Process only the failed message IDs stored in the database."""
+    scan_id = f"force_scan_{channel_id}_{message.id}"
+    user_id = message.from_user.id
+    
+    try:
+        failed_ids = await MongoDB.get_failed_ids(channel_id)
+        if not failed_ids:
+            await send_message(message, f"✅ No failed IDs found in the database for this channel.")
+            return
+        
+        chat = await TgClient.user.get_chat(channel_id)
+        await MongoDB.start_scan(scan_id, channel_id, user_id, len(failed_ids), chat.title, "Force Scan")
+        
+        stats = {"processed": 0, "errors": 0}
+        
+        messages_to_process = await TgClient.user.get_messages(chat_id=channel_id, message_ids=failed_ids)
+        
+        for i, msg in enumerate(messages_to_process):
+            if not msg: continue
+            
+            LOGGER.info(f"🎯 Force-processing media message {msg.id} in channel {channel_id}")
+            success, _ = await process_message_full_download_only(TgClient.user, msg)
+            if success:
+                stats["processed"] += 1
+            else:
+                stats["errors"] += 1
+            
+            await MongoDB.update_scan_progress(scan_id, i + 1)
+
+        await MongoDB.clear_failed_ids(channel_id)
+        await send_message(message, f"✅ Force processing complete for **{chat.title}**!\nUpdated: {stats['processed']}, Errors: {stats['errors']}")
+        LOGGER.info(f"✅ Force-processing complete for channel {channel_id}.")
+    except Exception as e:
+        LOGGER.error(f"💥 Critical error in force processing for {channel_id}: {e}")
+        await send_message(message, f"❌ A critical error occurred during the force scan for channel **{channel_id}**.")
+    finally:
+        await MongoDB.end_scan(scan_id)
+
+# ... (The rest of the file, including ffprobe helpers, remains the same)
