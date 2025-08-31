@@ -35,7 +35,8 @@ async def update_status_periodically():
             if not active_scans:
                 text += "✅ Bot is currently idle. No active tasks."
             else:
-                for scan in active_scans:
+                # Add numbering to the tasks
+                for i, scan in enumerate(active_scans, 1):
                     operation = scan.get('operation', 'Processing').title()
                     channel = scan.get('chat_title', 'Unknown')
                     current = scan.get('processed_messages', 0)
@@ -43,9 +44,9 @@ async def update_status_periodically():
                     progress = (current / total * 100) if total > 0 else 0
                     bar = f"[{'█' * int(progress / 10)}{'░' * (10 - int(progress / 10))}] {progress:.1f}%"
                     
-                    text += f"**- {operation}:** `{channel}`\n"
-                    text += f"  `{bar}`\n"
-                    text += f"  `{current} / {total} items processed.`\n\n"
+                    text += f"**{i}. {operation}:** `{channel}`\n"
+                    text += f"   `{bar}`\n"
+                    text += f"   `{current} / {total} items processed.`\n\n"
 
             class DummyMessage:
                 def __init__(self, cid, mid):
@@ -58,6 +59,7 @@ async def update_status_periodically():
             pass
         except Exception as e:
             LOGGER.error(f"Could not update status message: {e}")
+
 
 async def check_and_notify_interrupted_scans():
     """Check for interrupted scans and notify the owner."""
