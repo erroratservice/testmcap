@@ -45,3 +45,19 @@ async def edit_message(message, text, keyboard=None):
     except Exception as e:
         LOGGER.error(f"Edit message error: {e}")
         return None
+
+async def send_reply(message, text):
+    """Sends a message as a reply to the original command message."""
+    try:
+        return await message.reply_text(
+            text=text,
+            quote=True,
+            disable_web_page_preview=True
+        )
+    except FloodWait as e:
+        LOGGER.warning(f"FloodWait on reply: {e.value} seconds")
+        await asyncio.sleep(e.value)
+        return await send_reply(message, text)
+    except Exception as e:
+        LOGGER.error(f"Send reply error: {e}")
+        return None
