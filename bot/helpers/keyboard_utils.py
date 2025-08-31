@@ -2,7 +2,7 @@
 Pyrofork inline keyboard utilities
 """
 
-from pyrofork.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 def build_status_keyboard(process_id):
     """Build status control keyboard with Pyrofork"""

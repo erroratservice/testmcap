@@ -4,7 +4,7 @@ Pyrofork message utility functions
 
 import asyncio
 import logging
-from pyrofork.errors import FloodWait, MessageNotModified
+from pyrogram.errors import FloodWait, MessageNotModified
 from bot.core.client import TgClient
 
 LOGGER = logging.getLogger(__name__)

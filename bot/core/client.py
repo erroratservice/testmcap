@@ -3,10 +3,10 @@ Pyrofork client management with peer ID error handling
 """
 
 import logging
-from pyrofork import Client
-from pyrofork.errors import AuthKeyDuplicated, UserDeactivated
+from pyrogram import Client
+from pyrogram.errors import AuthKeyDuplicated, UserDeactivated
 from bot.core.config import Config
-import pyrofork.utils as pyroutils
+import pyrogram.utils as pyroutils
 
 # Fix for new Telegram peer ID formats
 pyroutils.MIN_CHAT_ID = -999999999999

@@ -2,7 +2,7 @@
 Pyrofork authorization filters 
 """
 
-from pyrofork import filters
+from pyrogram import filters
 from bot.core.config import Config
 
 class AuthFilters:

@@ -3,8 +3,8 @@ Pyrofork command handlers registration
 """
 
 import logging
-from pyrofork import filters
-from pyrofork.handlers import MessageHandler
+from pyrogram import filters
+from pyrogram.handlers import MessageHandler
 
 from bot.core.client import TgClient
 from bot.helpers.auth_filters import AuthFilters
