@@ -1,5 +1,5 @@
 """
-Enhanced MediaInfo update with FFprobe and intelligent fallback system
+Enhanced MediaInfo update with improved FFprobe handling for moov atom issues
 """
 
 import asyncio
@@ -17,9 +17,9 @@ LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 
 async def updatemediainfo_handler(client, message):
-    """Enhanced handler with FFprobe-based metadata extraction and fallback"""
+    """Enhanced handler with improved FFprobe for moov atom issues"""
     try:
-        LOGGER.info("🚀 Starting updatemediainfo command with FFprobe fallback")
+        LOGGER.info("🚀 Starting updatemediainfo command with enhanced FFprobe")
         
         # Parse input
         channels = await get_target_channels(message)
@@ -30,17 +30,17 @@ async def updatemediainfo_handler(client, message):
         
         LOGGER.info(f"📋 Processing {len(channels)} channels: {channels}")
         
-        # Process each channel with FFprobe fallback
+        # Process each channel with enhanced FFprobe
         for i, channel_id in enumerate(channels):
             LOGGER.info(f"🔄 Processing channel {i+1}/{len(channels)}: {channel_id}")
-            await process_channel_with_ffprobe_fallback(channel_id, message)
+            await process_channel_with_enhanced_ffprobe(channel_id, message)
             
     except Exception as e:
         LOGGER.error(f"💥 UpdateMediaInfo handler error: {e}", exc_info=True)
         await send_message(message, f"❌ **Fatal Error:** {e}")
 
-async def process_channel_with_ffprobe_fallback(channel_id, message):
-    """Process channel with FFprobe and intelligent fallback system"""
+async def process_channel_with_enhanced_ffprobe(channel_id, message):
+    """Process channel with enhanced FFprobe that handles moov atom issues"""
     try:
         # Step 1: Access channel
         LOGGER.info(f"🔍 Step 1: Accessing channel {channel_id}")
@@ -56,7 +56,8 @@ async def process_channel_with_ffprobe_fallback(channel_id, message):
         LOGGER.info("🔍 Step 2: Initializing progress tracking")
         progress_msg = await send_message(message,
             f"🔄 **Processing:** {chat.title}\n"
-            f"📊 **Method:** FFprobe with 5MB→20MB fallback\n"
+            f"📊 **Method:** Enhanced FFprobe (10MB→50MB fallback)\n"
+            f"🔧 **Fix:** Improved moov atom tolerance\n"
             f"🔍 **Step:** Scanning messages...")
         
         processed = 0
@@ -68,8 +69,8 @@ async def process_channel_with_ffprobe_fallback(channel_id, message):
         total_messages = 0
         media_found = 0
         
-        # Step 3: Scan messages with FFprobe fallback
-        LOGGER.info("🔍 Step 3: Starting message scan with FFprobe fallback")
+        # Step 3: Scan messages with enhanced FFprobe
+        LOGGER.info("🔍 Step 3: Starting message scan with enhanced FFprobe")
         try:
             message_count = 0
             async for msg in TgClient.user.get_chat_history(chat_id=channel_id, limit=100):  # Limit for testing
@@ -96,9 +97,9 @@ async def process_channel_with_ffprobe_fallback(channel_id, message):
                 media_found += 1
                 LOGGER.info(f"🎯 Processing media message {msg.id}: {media_check_result['filename']}")
                 
-                # Step 3c: Process with FFprobe fallback
+                # Step 3c: Process with enhanced FFprobe
                 try:
-                    result, used_fallback = await process_message_with_ffprobe_fallback(msg, media_check_result)
+                    result, used_fallback = await process_message_with_enhanced_ffprobe(msg, media_check_result)
                     if used_fallback:
                         fallback_used += 1
                         
@@ -244,50 +245,50 @@ async def already_has_mediainfo(msg):
         LOGGER.error(f"❌ Caption check error for message {msg.id}: {e}")
         return False
 
-async def process_message_with_ffprobe_fallback(msg, media_info):
-    """Process single message with FFprobe fallback system (5MB → 20MB)"""
-    temp_file_5mb = None
-    temp_file_20mb = None
+async def process_message_with_enhanced_ffprobe(msg, media_info):
+    """Process single message with enhanced FFprobe (10MB → 50MB fallback)"""
+    temp_file_10mb = None
+    temp_file_50mb = None
     used_fallback = False
     
     try:
         LOGGER.info(f"🔄 Processing message {msg.id}: {media_info['filename']}")
         
-        # Step A: Try 5MB first
-        LOGGER.debug(f"📥 Step A: Trying 5MB download for {media_info['filename']}")
-        temp_file_5mb = await download_partial_media_mb(msg, media_info, 5)
-        if not temp_file_5mb:
-            LOGGER.error(f"❌ 5MB download failed for message {msg.id}")
+        # Step A: Try 10MB first (increased from 5MB)
+        LOGGER.debug(f"📥 Step A: Trying 10MB download for {media_info['filename']}")
+        temp_file_10mb = await download_partial_media_mb(msg, media_info, 10)
+        if not temp_file_10mb:
+            LOGGER.error(f"❌ 10MB download failed for message {msg.id}")
             return "error", False
         
-        # Step B: Extract metadata with FFprobe (5MB attempt)
-        LOGGER.debug(f"🔍 Step B: Extracting metadata with FFprobe from 5MB file")
-        ffprobe_data = await extract_metadata_with_ffprobe(temp_file_5mb)
+        # Step B: Extract metadata with enhanced FFprobe (10MB attempt)
+        LOGGER.debug(f"🔍 Step B: Extracting metadata with enhanced FFprobe from 10MB file")
+        ffprobe_data = await extract_metadata_with_enhanced_ffprobe(temp_file_10mb)
         
-        # Step C: Check if 5MB gave us good results
+        # Step C: Check if 10MB gave us good results
         if not ffprobe_data or not ffprobe_data.get('has_content') or not is_metadata_complete(ffprobe_data):
-            LOGGER.info(f"🔄 5MB insufficient for message {msg.id}, trying 20MB fallback")
+            LOGGER.info(f"🔄 10MB insufficient for message {msg.id}, trying 50MB fallback")
             used_fallback = True
             
-            # Cleanup 5MB file
-            if temp_file_5mb and os.path.exists(temp_file_5mb):
-                os.unlink(temp_file_5mb)
-                temp_file_5mb = None
+            # Cleanup 10MB file
+            if temp_file_10mb and os.path.exists(temp_file_10mb):
+                os.unlink(temp_file_10mb)
+                temp_file_10mb = None
             
-            # Step D: Try 20MB fallback
-            LOGGER.debug(f"📥 Step D: Fallback 20MB download for {media_info['filename']}")
-            temp_file_20mb = await download_partial_media_mb(msg, media_info, 20)
-            if not temp_file_20mb:
-                LOGGER.error(f"❌ 20MB fallback download failed for message {msg.id}")
+            # Step D: Try 50MB fallback (increased from 20MB)
+            LOGGER.debug(f"📥 Step D: Fallback 50MB download for {media_info['filename']}")
+            temp_file_50mb = await download_partial_media_mb(msg, media_info, 50)
+            if not temp_file_50mb:
+                LOGGER.error(f"❌ 50MB fallback download failed for message {msg.id}")
                 return "error", True
             
-            # Step E: Extract metadata with FFprobe (20MB attempt)
-            LOGGER.debug(f"🔍 Step E: Extracting metadata from 20MB fallback file")
-            ffprobe_data = await extract_metadata_with_ffprobe(temp_file_20mb)
+            # Step E: Extract metadata with enhanced FFprobe (50MB attempt)
+            LOGGER.debug(f"🔍 Step E: Extracting metadata from 50MB fallback file")
+            ffprobe_data = await extract_metadata_with_enhanced_ffprobe(temp_file_50mb)
         
         # Final check
         if not ffprobe_data or not ffprobe_data.get('has_content'):
-            LOGGER.warning(f"⚠️ No useful metadata extracted for message {msg.id} even with fallback")
+            LOGGER.warning(f"⚠️ No useful metadata extracted for message {msg.id} even with enhanced FFprobe fallback")
             return "error", used_fallback
         
         # Step F: Generate caption
@@ -311,7 +312,7 @@ async def process_message_with_ffprobe_fallback(msg, media_info):
         return "error", used_fallback
     finally:
         # Cleanup both temp files
-        for temp_file in [temp_file_5mb, temp_file_20mb]:
+        for temp_file in [temp_file_10mb, temp_file_50mb]:
             if temp_file and os.path.exists(temp_file):
                 try:
                     os.unlink(temp_file)
@@ -383,23 +384,26 @@ async def download_partial_media_mb(msg, media_info, size_mb):
         LOGGER.error(f"💥 {size_mb}MB download error: {e}", exc_info=True)
         return None
 
-async def extract_metadata_with_ffprobe(file_path):
-    """Extract comprehensive metadata using FFprobe with enhanced parameters"""
+async def extract_metadata_with_enhanced_ffprobe(file_path):
+    """Enhanced FFprobe with better partial file handling and moov atom tolerance"""
     try:
-        LOGGER.debug(f"🔍 Running FFprobe on: {file_path}")
+        LOGGER.debug(f"🔍 Running enhanced FFprobe on: {file_path}")
         
-        # Enhanced FFprobe command for partial files
+        # Enhanced FFprobe command with partial file tolerance
         cmd = [
             "ffprobe",
             "-v", "error",
-            "-analyzeduration", "15000000",    # 15 seconds analysis duration
-            "-probesize", "15000000",          # 15MB probe size
+            "-analyzeduration", "20000000",     # 20 seconds analysis duration
+            "-probesize", "20000000",           # 20MB probe size 
+            "-fflags", "+igndts+ignidx",        # Ignore DTS/index errors
+            "-read_intervals", "%+#100",        # Read first 100 packets maximum
+            "-skip_frame", "nokey",             # Skip non-keyframes for speed
             "-show_entries", "format=duration,bit_rate,size:stream=codec_type,codec_name,width,height,channels,sample_rate,bit_rate,tags",
             "-print_format", "json",
             file_path
         ]
         
-        # Run FFprobe
+        # Run FFprobe with enhanced error tolerance
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -408,27 +412,34 @@ async def extract_metadata_with_ffprobe(file_path):
         
         stdout, stderr = await proc.communicate()
         
+        # Enhanced error handling - continue even with moov atom warnings
         if stderr:
             stderr_text = stderr.decode().strip()
-            if "partial file" in stderr_text.lower() or "truncated" in stderr_text.lower():
-                LOGGER.warning(f"⚠️ FFprobe detected partial/truncated file, but continuing")
-            elif stderr_text:
-                LOGGER.warning(f"⚠️ FFprobe warnings: {stderr_text}")
+            
+            # Log but ignore known partial file issues
+            if any(keyword in stderr_text.lower() for keyword in ['moov atom not found', 'invalid data', 'incomplete', 'truncated']):
+                LOGGER.warning(f"⚠️ FFprobe partial file warning (continuing): {stderr_text}")
+            else:
+                LOGGER.warning(f"⚠️ FFprobe stderr: {stderr_text}")
         
-        if proc.returncode != 0 and not stdout:
-            LOGGER.error(f"❌ FFprobe failed with return code {proc.returncode}")
-            return None
+        # Continue processing even if return code indicates partial failure
+        if proc.returncode != 0:
+            if not stdout:
+                LOGGER.error(f"❌ Enhanced FFprobe failed completely with return code {proc.returncode}")
+                return None
+            else:
+                LOGGER.warning(f"⚠️ Enhanced FFprobe partial success with return code {proc.returncode}")
         
         # Parse JSON output
         try:
             data = json.loads(stdout.decode())
         except json.JSONDecodeError as e:
-            LOGGER.error(f"❌ Failed to parse FFprobe JSON output: {e}")
+            LOGGER.error(f"❌ Failed to parse enhanced FFprobe JSON: {e}")
             return None
         
-        LOGGER.debug(f"📊 FFprobe data: {len(data.get('streams', []))} streams found")
+        LOGGER.debug(f"📊 Enhanced FFprobe data: {len(data.get('streams', []))} streams found")
         
-        # Parse streams
+        # Extract video and audio streams
         video_info = None
         audio_tracks = []
         
@@ -443,14 +454,13 @@ async def extract_metadata_with_ffprobe(file_path):
                 
                 video_info = {
                     'codec_name': codec_name,
-                    'codec': codec_name,  # Compatibility
+                    'codec': codec_name,
                     'width': width,
                     'height': height,
-                    'aspect_ratio': stream.get('display_aspect_ratio'),
-                    'frame_rate': stream.get('avg_frame_rate'),
-                    'bit_rate': stream.get('bit_rate')
+                    'bit_rate': stream.get('bit_rate'),
+                    'frame_rate': stream.get('avg_frame_rate')
                 }
-                LOGGER.debug(f"📹 Video stream: {video_info}")
+                LOGGER.debug(f"📹 Video stream found: {video_info}")
                 
             elif codec_type == "audio":
                 codec_name = stream.get('codec_name', 'Unknown')
@@ -459,14 +469,14 @@ async def extract_metadata_with_ffprobe(file_path):
                 # Extract language from tags
                 tags = stream.get('tags', {}) or {}
                 language = None
-                for key in ['language', 'lang', 'LANGUAGE', 'Language']:
+                for key in ['language', 'lang', 'LANGUAGE']:
                     if key in tags:
                         language = tags[key]
                         break
                 
                 audio_track = {
                     'codec_name': codec_name,
-                    'codec': codec_name,  # Compatibility
+                    'codec': codec_name,
                     'channels': channels,
                     'language': language or 'Unknown',
                     'sample_rate': stream.get('sample_rate'),
@@ -474,32 +484,27 @@ async def extract_metadata_with_ffprobe(file_path):
                     'tags': tags
                 }
                 audio_tracks.append(audio_track)
-                LOGGER.debug(f"🎵 Audio stream: {audio_track}")
+                LOGGER.debug(f"🎵 Audio stream found: {audio_track}")
         
-        # Get format information
-        format_info = data.get('format', {})
-        duration = format_info.get('duration')
-        bit_rate = format_info.get('bit_rate')
-        
-        # Determine if we have useful content
+        # Check if we got useful metadata
         has_content = bool(video_info) or bool(audio_tracks)
         
         result = {
             'video': video_info,
             'audio': audio_tracks,
-            'format': {
-                'duration': duration,
-                'bit_rate': bit_rate,
-                'size': format_info.get('size')
-            },
+            'format': data.get('format', {}),
             'has_content': has_content
         }
         
-        LOGGER.info(f"✅ FFprobe extracted: Video={bool(video_info)}, Audio={len(audio_tracks)} tracks, HasContent={has_content}")
+        if has_content:
+            LOGGER.info(f"✅ Enhanced FFprobe success: Video={bool(video_info)}, Audio={len(audio_tracks)} tracks")
+        else:
+            LOGGER.warning(f"⚠️ Enhanced FFprobe found no usable streams")
+        
         return result
         
     except Exception as e:
-        LOGGER.error(f"💥 FFprobe extraction error: {e}", exc_info=True)
+        LOGGER.error(f"💥 Enhanced FFprobe extraction error: {e}", exc_info=True)
         return None
 
 def generate_caption_with_ffprobe_data(original_caption, ffprobe_data):
@@ -608,10 +613,10 @@ def generate_caption_with_ffprobe_data(original_caption, ffprobe_data):
                 else:
                     enhanced_caption = mediainfo_section
             
-            LOGGER.debug(f"✅ Caption generated with FFprobe (final length: {len(enhanced_caption)})")
+            LOGGER.debug(f"✅ Caption generated with enhanced FFprobe (final length: {len(enhanced_caption)})")
             return enhanced_caption
         
-        LOGGER.warning("⚠️ No metadata lines generated from FFprobe - returning original")
+        LOGGER.warning("⚠️ No metadata lines generated from enhanced FFprobe - returning original")
         return enhanced
         
     except Exception as e:
