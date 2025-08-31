@@ -1,25 +1,31 @@
 FROM python:3.11-slim
 
-WORKDIR /app
-
-# Install system dependencies
+# Install system dependencies including FFprobe
 RUN apt-get update && apt-get install -y \
-    gcc \
-    build-essential \
-    python3-dev \
     ffmpeg \
-    mediainfo \
+    wget \
+    curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Set working directory
+WORKDIR /app
+
+# Copy requirements first for better caching
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application
+# Copy application code
 COPY . .
 
-# Create temp directory
+# Create necessary directories
 RUN mkdir -p /tmp/mediainfo
 
-# Run bot
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Run the bot
 CMD ["python", "-m", "bot"]
