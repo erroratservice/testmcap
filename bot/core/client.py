@@ -1,12 +1,12 @@
 """
-Clean Telegram client management with peer ID error handling
+Pyrofork client management with peer ID error handling
 """
 
 import logging
-from pyrogram import Client
-from pyrogram.errors import AuthKeyDuplicated, UserDeactivated
+from pyrofork import Client
+from pyrofork.errors import AuthKeyDuplicated, UserDeactivated
 from bot.core.config import Config
-import pyrogram.utils as pyroutils
+import pyrofork.utils as pyroutils
 
 # Fix for new Telegram peer ID formats
 pyroutils.MIN_CHAT_ID = -999999999999
@@ -15,7 +15,7 @@ pyroutils.MIN_CHANNEL_ID = -100999999999999
 LOGGER = logging.getLogger(__name__)
 
 class TgClient:
-    """Manages bot and user Telegram clients"""
+    """Manages bot and user Telegram clients with Pyrofork"""
     
     bot = None
     user = None
