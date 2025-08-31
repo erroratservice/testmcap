@@ -2,12 +2,9 @@
 Status command for tracking processing progress
 """
 
-import logging
 from datetime import datetime
 from bot.helpers.message_utils import send_message
 from bot.helpers.keyboard_utils import build_status_keyboard
-
-LOGGER = logging.getLogger(__name__)
 
 # Global processing state (in production, use database)
 processing_states = {}
@@ -36,7 +33,6 @@ async def status_handler(client, message):
             await send_message(message, status_text, keyboard)
             
     except Exception as e:
-        LOGGER.error(f"Status handler error: {e}")
         await send_message(message, f"❌ Error retrieving status: {e}")
 
 def build_status_message(state):
@@ -70,4 +66,3 @@ def build_status_message(state):
 └─ 🔄 **Status:** {'🟢 Running' if state.get('status') == 'running' else '⏸️ Paused'}
 
 ⏱️ **Last Update:** {datetime.now().strftime('%H:%M:%S')}"""
-  
