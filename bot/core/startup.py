@@ -5,7 +5,7 @@ Clean bot startup sequence
 import asyncio
 import logging
 import os
-from pyrogram.errors import MessageNotModified
+from pyrogram.errors import MessageNotModified, MessageDeleteForbidden
 from bot.core.config import Config
 from bot.core.client import TgClient
 from bot.core.handlers import register_handlers
@@ -16,26 +16,40 @@ LOGGER = logging.getLogger(__name__)
 
 async def update_status_periodically():
     """A background task that periodically updates the central status message."""
+    was_active = False
     while True:
-        await asyncio.sleep(5) # Update every 5 seconds
+        await asyncio.sleep(5)
         if MongoDB.db is None:
             continue
 
         status_message_doc = await MongoDB.get_status_message()
         if not status_message_doc:
+            was_active = False
             continue
 
         chat_id = status_message_doc.get('chat_id')
         message_id = status_message_doc.get('message_id')
         
         try:
-            active_scans = await MongoDB.get_interrupted_scans()
+            active_scans = await MongoDB.get_active_scans()
             
+            is_active_now = bool(active_scans)
+            if was_active and not is_active_now:
+                try:
+                    await TgClient.bot.delete_messages(chat_id, message_id)
+                    await MongoDB.delete_status_message_tracker()
+                except (MessageDeleteForbidden, AttributeError):
+                    pass 
+                except Exception as e:
+                    LOGGER.warning(f"Could not delete final status message: {e}")
+                was_active = False
+                continue
+            was_active = is_active_now
+
             text = "📊 **Live Task Status**\n\n"
             if not active_scans:
                 text += "✅ Bot is currently idle. No active tasks."
             else:
-                # Add numbering to the tasks
                 for i, scan in enumerate(active_scans, 1):
                     operation = scan.get('operation', 'Processing').title()
                     channel = scan.get('chat_title', 'Unknown')
@@ -46,7 +60,7 @@ async def update_status_periodically():
                     
                     text += f"**{i}. {operation}:** `{channel}`\n"
                     text += f"   `{bar}`\n"
-                    text += f"   `{current} / {total} items processed.`\n\n"
+                    text += f"   `Processed: {current} / {total}`\n\n"
 
             class DummyMessage:
                 def __init__(self, cid, mid):
@@ -60,13 +74,11 @@ async def update_status_periodically():
         except Exception as e:
             LOGGER.error(f"Could not update status message: {e}")
 
-
 async def check_and_notify_interrupted_scans():
-    """Check for interrupted scans and notify the owner."""
     if not Config.DATABASE_URL or MongoDB.db is None:
         return
     
-    interrupted = await MongoDB.get_interrupted_scans()
+    interrupted = await MongoDB.get_active_scans()
     if interrupted:
         notification_text = "⚠️ **Bot Restarted with Interrupted Scans** ⚠️\n\nThe following scans were interrupted and did not complete:\n"
         for scan in interrupted:
@@ -84,11 +96,10 @@ async def check_and_notify_interrupted_scans():
         await MongoDB.clear_all_scans()
 
 async def main():
-    """Main startup function"""
     try:
         Config.load()
         Config.validate()
-        LOGGER.info("✅ Configuration loaded and validated.")
+        LOGGER.info("✅ Configuration loaded.")
         
         os.makedirs(Config.DOWNLOAD_DIR, exist_ok=True)
         
@@ -96,7 +107,7 @@ async def main():
             try:
                 await MongoDB.initialize()
             except Exception as e:
-                LOGGER.warning(f"⚠️ Database connection failed: {e}. Some features will be disabled.")
+                LOGGER.warning(f"⚠️ DB connection failed: {e}")
         
         await TgClient.initialize()
         
@@ -104,7 +115,6 @@ async def main():
         
         register_handlers()
 
-        # Start the background task for status updates
         asyncio.create_task(update_status_periodically())
         LOGGER.info("✅ Started background status updater.")
         
