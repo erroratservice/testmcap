@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 RUN apt-get update && apt-get install -y \
-    ffmpeg build-essential python3-dev gcc make \
+    ffmpeg build-essential python3-dev gcc make mediainfo \
     wget \
     curl \
     libffi-dev \
