@@ -3,137 +3,181 @@ Enhanced MediaInfo with multi-chunk extraction and clean output
 """
 
 import asyncio
-import logging
 import os
 import json
-from aiofiles import open as aiopen
 from aiofiles.os import remove as aioremove
 from pyrogram.errors import MessageNotModified
 from bot.core.client import TgClient
 from bot.helpers.message_utils import send_message, edit_message
+from bot.database.mongodb import MongoDB
 
-LOGGER = logging.getLogger(__name__)
-
-# Enhanced Configuration
-CHUNK_STEPS = [5, 10, 15]  # Number of chunks to try in sequence
-FULL_DOWNLOAD_LIMIT = 200 * 1024 * 1024  # 200MB for full download fallback
+# Configuration
+CHUNK_STEPS = [5, 10, 15]
+FULL_DOWNLOAD_LIMIT = 200 * 1024 * 1024
 MEDIAINFO_TIMEOUT = 30
 
 async def updatemediainfo_handler(client, message):
-    """Handler with iterative chunk-based MediaInfo extraction"""
+    """Handler with database-driven force-processing."""
     try:
-        LOGGER.info("🚀 Starting iterative chunk-based MediaInfo processing")
+        if not MongoDB.db:
+            await send_message(message, "❌ **Error:** Database is not connected. Cannot use this feature.")
+            return
+
+        is_force_run = len(message.command) > 2 and message.command[2] == '-f'
         
         channels = await get_target_channels(message)
         if not channels:
-            await send_message(message, "❌ **Usage:** `/updatemediainfo -1001234567890`")
+            await send_message(message, "❌ **Usage:**\n• `/updatemediainfo -1001234567890`\n• `/updatemediainfo -1001234567890 -f`")
             return
-        
-        for channel_id in channels:
+
+        channel_id = channels[0]
+
+        if is_force_run:
+            await force_process_channel(channel_id, message)
+        else:
             await process_channel_enhanced(channel_id, message)
             
     except Exception as e:
-        LOGGER.error(f"💥 Handler error: {e}", exc_info=True)
         await send_message(message, f"❌ **Error:** {e}")
 
 async def process_channel_enhanced(channel_id, message):
-    """Process channel with iterative chunk approach"""
+    """Process channel, track scan in DB, and save failed IDs."""
+    scan_id = f"scan_{channel_id}_{message.id}"
+    user_id = message.from_user.id
+    
     try:
         chat = await TgClient.user.get_chat(channel_id)
-        LOGGER.info(f"✅ Processing channel: {chat.title}")
         
-        progress_msg = await send_message(message,
-            f"🔄 **Processing:** {chat.title}\n"
-            f"📊 **Method:** Iterative Chunks ({', '.join(map(str, CHUNK_STEPS))})\n"
-            f"📝 **Output:** Clean & Essential\n"
-            f"🔍 **Status:** Starting...")
+        history_generator = TgClient.user.get_chat_history(chat_id=channel_id, limit=100)
+        messages = [msg async for msg in history_generator]
+        total_messages = len(messages)
+        
+        await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title)
+
+        progress_msg = await send_message(message, f"🔄 **Scanning:** {chat.title}...")
         
         stats = {
             "processed": 0, "errors": 0, "skipped": 0, 
             "chunk_success": {step: 0 for step in CHUNK_STEPS},
-            "full_success": 0, "total": 0, "media": 0
+            "full_success": 0, "total": 0, "media": 0,
+            "failed_ids": []
         }
         
-        message_count = 0
-        async for msg in TgClient.user.get_chat_history(chat_id=channel_id, limit=100):
-            message_count += 1
+        for i, msg in enumerate(reversed(messages)):
             stats["total"] += 1
             
-            if not await has_media(msg):
-                stats["skipped"] += 1
-                continue
-            
-            if await already_has_mediainfo(msg):
+            if not await has_media(msg) or await already_has_mediainfo(msg):
                 stats["skipped"] += 1
                 continue
             
             stats["media"] += 1
-            LOGGER.info(f"🎯 Processing media message {msg.id}")
             
             try:
                 success, method = await process_message_enhanced(TgClient.user, msg)
                 if success:
                     stats["processed"] += 1
-                    if "chunk" in method:
-                        step = int(method.replace('chunk', ''))
-                        stats["chunk_success"][step] += 1
-                    elif method == "full":
-                        stats["full_success"] += 1
-                    LOGGER.info(f"✅ Updated message {msg.id} using {method}")
+                    if "chunk" in method: stats["chunk_success"][int(method.replace('chunk', ''))] += 1
+                    elif method == "full": stats["full_success"] += 1
                 else:
                     stats["errors"] += 1
-            except Exception as e:
-                LOGGER.error(f"❌ Error processing {msg.id}: {e}")
+                    stats["failed_ids"].append(msg.id)
+            except Exception:
                 stats["errors"] += 1
-            
-            # Progress update
-            if message_count % 5 == 0:
+                stats["failed_ids"].append(msg.id)
+
+            if i % 5 == 0:
                 chunk_stats = " | ".join([f"C{k}:{v}" for k, v in stats['chunk_success'].items()])
                 await edit_message(progress_msg,
                     f"🔄 **Processing:** {chat.title}\n"
                     f"📊 **Messages:** {stats['total']} | **Media:** {stats['media']}\n"
                     f"✅ **Updated:** {stats['processed']} | ❌ **Errors:** {stats['errors']}\n"
                     f"📦 **Chunks:** {chunk_stats} | **Full:** {stats['full_success']}")
-                await asyncio.sleep(0.5)
+                await MongoDB.update_scan_progress(scan_id, stats["total"])
+
+        if stats["failed_ids"]:
+            await MongoDB.save_failed_ids(channel_id, stats["failed_ids"])
         
-        # Final results
-        chunk_stats = "\n".join([f"📦 **{k} Chunks:** {v} files" for k, v in stats['chunk_success'].items()])
-        final_stats = (
-            f"✅ **Completed:** {chat.title}\n"
-            f"📊 **Total:** {stats['total']} | **Media:** {stats['media']}\n"
-            f"✅ **Updated:** {stats['processed']} files\n"
-            f"❌ **Errors:** {stats['errors']} | ⏭️ **Skipped:** {stats['skipped']}\n\n"
-            f"{chunk_stats}\n"
-            f"📥 **Full:** {stats['full_success']} files"
-        )
-        
+        final_stats = (f"✅ **Scan Complete:** {chat.title}\n"
+                       f"📊 **Updated:** {stats['processed']} files\n"
+                       f"❌ **Errors:** {stats['errors']} | ⏭️ **Skipped:** {stats['skipped']}\n\n"
+                       f"Failed IDs for this run have been saved. Use `-f` to retry them.")
         await edit_message(progress_msg, final_stats)
-        LOGGER.info(f"🎉 Enhanced processing complete: {stats['processed']} updated")
+
+    except Exception:
+        pass
+    finally:
+        await MongoDB.end_scan(scan_id)
+
+async def force_process_channel(channel_id, message):
+    """Process only the failed message IDs stored in the database."""
+    failed_ids = await MongoDB.get_failed_ids(channel_id)
+    if not failed_ids:
+        await send_message(message, f"✅ No failed IDs found in the database for this channel.")
+        return
+
+    progress_msg = await send_message(message, f"🔄 **Force Processing:** Found {len(failed_ids)} failed files. Starting full downloads...")
+    
+    stats = {"processed": 0, "errors": 0}
+    
+    messages_to_process = await TgClient.user.get_messages(chat_id=channel_id, message_ids=failed_ids)
+    
+    for msg in messages_to_process:
+        if not msg: continue
+        success, _ = await process_message_full_download_only(TgClient.user, msg)
+        if success:
+            stats["processed"] += 1
+        else:
+            stats["errors"] += 1
         
-    except Exception as e:
-        LOGGER.error(f"💥 Channel processing error: {e}")
+        await edit_message(progress_msg, f"🔄 **Force Processing:**\n✅ **Updated:** {stats['processed']}\n❌ **Errors:** {stats['errors']}\n**Total:** {len(failed_ids)}")
+
+    await MongoDB.clear_failed_ids(channel_id)
+    await edit_message(progress_msg, f"✅ **Force Processing Complete!**\n✅ **Updated:** {stats['processed']} files\n❌ **Errors:** {stats['errors']} files\n\nFailed ID list has been cleared.")
+
+async def process_message_full_download_only(client, message):
+    """A simplified processor that only attempts a full download."""
+    temp_file = None
+    try:
+        media = message.video or message.audio or message.document
+        if not media: return False, "no_media"
+
+        filename = str(media.file_name) if media.file_name else f"media_{message.id}"
+        temp_dir = "temp_mediainfo"
+        if not os.path.exists(temp_dir): os.makedirs(temp_dir)
+        temp_file = os.path.join(temp_dir, f"temp_{message.id}.tmp")
+
+        await asyncio.wait_for(message.download(temp_file), timeout=300.0)
+        
+        metadata = await extract_mediainfo_from_file(temp_file)
+        if metadata:
+            video_info, audio_tracks = parse_essential_metadata(metadata)
+            if video_info or audio_tracks:
+                if await update_caption_clean(message, video_info, audio_tracks):
+                    await cleanup_files([temp_file])
+                    return True, "full"
+        return False, "failed"
+    except Exception:
+        return False, "error"
+    finally:
+        await cleanup_files([temp_file])
 
 async def process_message_enhanced(client, message):
     """Process message with iterative chunk strategy"""
     temp_file = None
     try:
         media = message.video or message.audio or message.document
-        if not media:
-            return False, "none"
+        if not media: return False, "none"
 
         filename = str(media.file_name) if media.file_name else f"media_{message.id}"
         file_size = media.file_size
         
         temp_dir = "temp_mediainfo"
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir)
+        if not os.path.exists(temp_dir): os.makedirs(temp_dir)
         temp_file = os.path.join(temp_dir, f"temp_{message.id}.tmp")
 
-        # Iterative chunk download strategy
         for step in CHUNK_STEPS:
-            LOGGER.info(f"📦 Trying with {step} chunks for {filename}")
             try:
-                async with aiopen(temp_file, "wb") as f:
+                async with open(temp_file, "wb") as f:
                     chunk_count = 0
                     async for chunk in client.stream_media(message, limit=step):
                         await f.write(chunk)
@@ -144,217 +188,114 @@ async def process_message_enhanced(client, message):
                     if metadata:
                         video_info, audio_tracks = parse_essential_metadata(metadata)
                         if video_info or audio_tracks:
-                            success = await update_caption_clean(message, video_info, audio_tracks)
-                            if success:
+                            if await update_caption_clean(message, video_info, audio_tracks):
                                 await cleanup_files([temp_file])
                                 return True, f"chunk{step}"
-            except Exception as e:
-                LOGGER.warning(f"⚠️ Error during {step}-chunk attempt: {e}")
+            except Exception:
+                pass
 
-        # Fallback: Full download for smaller files
         if file_size <= FULL_DOWNLOAD_LIMIT:
-            LOGGER.info(f"📥 Fallback: Full download for {filename} ({file_size/1024/1024:.1f}MB)")
             try:
                 await asyncio.wait_for(message.download(temp_file), timeout=300.0)
                 metadata = await extract_mediainfo_from_file(temp_file)
                 if metadata:
                     video_info, audio_tracks = parse_essential_metadata(metadata)
                     if video_info or audio_tracks:
-                        success = await update_caption_clean(message, video_info, audio_tracks)
-                        if success:
+                        if await update_caption_clean(message, video_info, audio_tracks):
                             await cleanup_files([temp_file])
                             return True, "full"
             except asyncio.TimeoutError:
-                LOGGER.warning("⚠️ Full download timed out")
+                pass
         
-        await cleanup_files([temp_file])
         return False, "failed"
-        
-    except Exception as e:
-        LOGGER.error(f"💥 Enhanced processing error: {e}")
-        await cleanup_files([temp_file])
+    except Exception:
         return False, "error"
+    finally:
+        await cleanup_files([temp_file])
 
 async def extract_mediainfo_from_file(file_path):
-    """Extract MediaInfo from file"""
     try:
         proc = await asyncio.create_subprocess_shell(
             f'mediainfo "{file_path}" --Output=JSON',
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
-        
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=MEDIAINFO_TIMEOUT)
-        
-        if stdout:
-            return json.loads(stdout.decode())
-        
-        return None
-        
-    except Exception as e:
-        LOGGER.debug(f"MediaInfo extraction error: {e}")
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=MEDIAINFO_TIMEOUT)
+        return json.loads(stdout.decode()) if stdout else None
+    except Exception:
         return None
 
 def parse_essential_metadata(metadata):
-    """Parse only essential metadata for clean output"""
     try:
         tracks = metadata.get("media", {}).get("track", [])
-        
-        video_info = None
-        audio_tracks = []
+        video_info, audio_tracks = None, []
         
         for track in tracks:
             track_type = track.get("@type", "").lower()
-            
-            # Extract video info (codec + resolution)
             if track_type == "video" and not video_info:
                 codec = track.get("Format", "Unknown").split('/')[0].strip().upper()
-                
-                # Get height for quality determination
-                height = None
                 height_str = track.get("Height", "")
-                if height_str:
-                    try:
-                        height = int(''.join(filter(str.isdigit, str(height_str))))
-                    except:
-                        pass
-                
-                video_info = {
-                    "codec": codec,
-                    "height": height
-                }
-                
-            # Extract audio info (language only, filter out undefined)
+                height = int(''.join(filter(str.isdigit, str(height_str)))) if height_str else None
+                video_info = {"codec": codec, "height": height}
             elif track_type == "audio":
                 language = track.get("Language", "").upper()
-                
-                # Filter out undefined/unknown languages
                 if language and language not in ["UND", "UNDEFINED", "UNKNOWN", "N/A", ""]:
-                    # Standardize common language codes
-                    lang_map = {
-                        "EN": "ENG", "ENGLISH": "ENG",
-                        "HI": "HIN", "HINDI": "HIN", 
-                        "ES": "SPA", "SPANISH": "SPA",
-                        "FR": "FRA", "FRENCH": "FRA",
-                        "DE": "GER", "GERMAN": "GER"
-                    }
-                    language = lang_map.get(language, language)
-                    audio_tracks.append({"language": language})
+                    lang_map = {"EN": "ENG", "HI": "HIN", "ES": "SPA", "FR": "FRA", "DE": "GER"}
+                    audio_tracks.append({"language": lang_map.get(language, language)})
                 else:
-                    # Count audio tracks even without language
                     audio_tracks.append({"language": None})
-        
-        LOGGER.debug(f"📊 Parsed: video={video_info}, audio_tracks={len(audio_tracks)}")
         return video_info, audio_tracks
-        
-    except Exception as e:
-        LOGGER.error(f"💥 Metadata parsing error: {e}")
+    except Exception:
         return None, []
 
 async def update_caption_clean(message, video_info, audio_tracks):
-    """Update caption with clean, minimal format"""
     try:
         current_caption = message.caption or ""
         mediainfo_lines = []
         
-        # Clean Video line: "Video: H264 1080p"
         if video_info and video_info.get("codec"):
-            codec = video_info["codec"]
-            height = video_info.get("height")
-            
-            # Determine quality
+            codec, height = video_info["codec"], video_info.get("height")
             quality = ""
             if height:
-                if height >= 2160:
-                    quality = "4K"
-                elif height >= 1440:
-                    quality = "1440p"
-                elif height >= 1080:
-                    quality = "1080p"
-                elif height >= 720:
-                    quality = "720p"
-                elif height >= 480:
-                    quality = "480p"
-                else:
-                    quality = f"{height}p"
-            
-            # Build clean video line
-            video_line = f"Video: {codec}"
-            if quality:
-                video_line += f" {quality}"
-            
+                if height >= 2160: quality = "4K"
+                elif height >= 1080: quality = "1080p"
+                elif height >= 720: quality = "720p"
+                else: quality = f"{height}p"
+            video_line = f"Video: {codec} {quality}".strip()
             mediainfo_lines.append(video_line)
-            LOGGER.info(f"📹 Clean video line: {video_line}")
         
-        # Clean Audio line: "Audio: 2 (ENG, SPA)" or "Audio: 1"
         if audio_tracks:
-            track_count = len(audio_tracks)
-            
-            # Get unique languages (filter out None)
-            languages = []
-            for track in audio_tracks:
-                lang = track.get("language")
-                if lang and lang not in languages:
-                    languages.append(lang)
-            
-            # Build clean audio line
-            audio_line = f"Audio: {track_count}"
-            if languages:
-                audio_line += f" ({', '.join(languages)})"
-            
+            languages = sorted(list(set(t['language'] for t in audio_tracks if t['language'])))
+            audio_line = f"Audio: {len(audio_tracks)}"
+            if languages: audio_line += f" ({', '.join(languages)})"
             mediainfo_lines.append(audio_line)
-            LOGGER.info(f"🎵 Clean audio line: {audio_line}")
         
-        if not mediainfo_lines:
-            LOGGER.warning("⚠️ No MediaInfo lines generated")
-            return False
+        if not mediainfo_lines: return False
         
-        # Create clean enhanced caption
-        enhanced = current_caption.strip()
         mediainfo_section = "\n\n" + "\n".join(mediainfo_lines)
-        enhanced_caption = enhanced + mediainfo_section
+        enhanced_caption = current_caption.strip() + mediainfo_section
         
-        # Telegram length limit
-        if len(enhanced_caption) > 1020:
-            max_original = 1020 - len(mediainfo_section) - 5
-            if max_original > 0:
-                enhanced_caption = enhanced[:max_original] + "..." + mediainfo_section
-            else:
-                enhanced_caption = mediainfo_section
+        if len(enhanced_caption) > 1024:
+            enhanced_caption = enhanced_caption[:1020] + "..."
         
-        # Update if changed
-        if current_caption == enhanced_caption:
-            LOGGER.warning("⚠️ Caption unchanged")
-            return False
+        if current_caption == enhanced_caption: return False
         
-        try:
-            await TgClient.user.edit_message_caption(
-                chat_id=message.chat.id,
-                message_id=message.id,
-                caption=enhanced_caption
-            )
-            LOGGER.info("✅ Clean caption updated successfully")
-            return True
-            
-        except MessageNotModified:
-            LOGGER.info("ℹ️ Message not modified by Telegram")
-            return False
-        
-    except Exception as e:
-        LOGGER.error(f"💥 Clean caption update error: {e}")
+        await TgClient.user.edit_message_caption(
+            chat_id=message.chat.id, message_id=message.id, caption=enhanced_caption
+        )
+        return True
+    except MessageNotModified:
+        return False
+    except Exception:
         return False
 
 async def cleanup_files(file_paths):
-    """Clean up temporary files"""
     for file_path in file_paths:
         try:
             if file_path and os.path.exists(file_path):
                 await aioremove(file_path)
-                LOGGER.debug(f"🗑️ Cleaned up: {file_path}")
-        except Exception as e:
-            LOGGER.debug(f"Cleanup warning: {e}")
+        except Exception:
+            pass
 
-# Helper functions
 async def has_media(msg):
     return bool(msg.video or msg.audio or msg.document)
 
@@ -366,12 +307,9 @@ async def get_target_channels(message):
     try:
         if len(message.command) > 1:
             channel_id = message.command[1]
-            if channel_id.startswith('-100'):
-                return [int(channel_id)]
-            elif channel_id.isdigit():
-                return [int(f"-100{channel_id}")]
-            else:
-                return [channel_id]
+            if channel_id.startswith('-100'): return [int(channel_id)]
+            elif channel_id.isdigit(): return [int(f"-100{channel_id}")]
+            else: return [channel_id]
         return []
     except:
         return []
