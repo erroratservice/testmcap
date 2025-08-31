@@ -1,13 +1,13 @@
 """
-Enhanced MediaInfo update with fixed extraction and safe caption editing
+Enhanced MediaInfo update with FFprobe and intelligent fallback system
 """
 
 import asyncio
 import logging
 import os
 import tempfile
+import json
 from datetime import datetime
-from pymediainfo import MediaInfo
 from pyrogram.errors import MessageNotModified
 from bot.core.client import TgClient
 from bot.helpers.message_utils import send_message, edit_message
@@ -17,9 +17,9 @@ LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 
 async def updatemediainfo_handler(client, message):
-    """Enhanced handler with comprehensive logging and debugging"""
+    """Enhanced handler with FFprobe-based metadata extraction and fallback"""
     try:
-        LOGGER.info("🚀 Starting updatemediainfo command")
+        LOGGER.info("🚀 Starting updatemediainfo command with FFprobe fallback")
         
         # Parse input
         channels = await get_target_channels(message)
@@ -30,17 +30,17 @@ async def updatemediainfo_handler(client, message):
         
         LOGGER.info(f"📋 Processing {len(channels)} channels: {channels}")
         
-        # Process each channel with detailed logging
+        # Process each channel with FFprobe fallback
         for i, channel_id in enumerate(channels):
             LOGGER.info(f"🔄 Processing channel {i+1}/{len(channels)}: {channel_id}")
-            await process_channel_with_debug_logging(channel_id, message)
+            await process_channel_with_ffprobe_fallback(channel_id, message)
             
     except Exception as e:
         LOGGER.error(f"💥 UpdateMediaInfo handler error: {e}", exc_info=True)
         await send_message(message, f"❌ **Fatal Error:** {e}")
 
-async def process_channel_with_debug_logging(channel_id, message):
-    """Process channel with extensive debug logging"""
+async def process_channel_with_ffprobe_fallback(channel_id, message):
+    """Process channel with FFprobe and intelligent fallback system"""
     try:
         # Step 1: Access channel
         LOGGER.info(f"🔍 Step 1: Accessing channel {channel_id}")
@@ -56,7 +56,7 @@ async def process_channel_with_debug_logging(channel_id, message):
         LOGGER.info("🔍 Step 2: Initializing progress tracking")
         progress_msg = await send_message(message,
             f"🔄 **Processing:** {chat.title}\n"
-            f"📊 **Debug Mode:** Enhanced MediaInfo extraction\n"
+            f"📊 **Method:** FFprobe with 5MB→20MB fallback\n"
             f"🔍 **Step:** Scanning messages...")
         
         processed = 0
@@ -64,11 +64,12 @@ async def process_channel_with_debug_logging(channel_id, message):
         skipped_no_media = 0
         skipped_already_processed = 0
         skipped_no_change = 0
+        fallback_used = 0
         total_messages = 0
         media_found = 0
         
-        # Step 3: Scan messages with detailed logging
-        LOGGER.info("🔍 Step 3: Starting message scan")
+        # Step 3: Scan messages with FFprobe fallback
+        LOGGER.info("🔍 Step 3: Starting message scan with FFprobe fallback")
         try:
             message_count = 0
             async for msg in TgClient.user.get_chat_history(chat_id=channel_id, limit=100):  # Limit for testing
@@ -77,7 +78,7 @@ async def process_channel_with_debug_logging(channel_id, message):
                 
                 LOGGER.debug(f"📨 Message {message_count}: ID={msg.id}, Date={msg.date}, Media={bool(msg.media)}")
                 
-                # Step 3a: Check for media (detailed logging)
+                # Step 3a: Check for media
                 media_check_result = await detailed_media_check(msg)
                 LOGGER.debug(f"🔍 Media check for message {msg.id}: {media_check_result}")
                 
@@ -95,9 +96,12 @@ async def process_channel_with_debug_logging(channel_id, message):
                 media_found += 1
                 LOGGER.info(f"🎯 Processing media message {msg.id}: {media_check_result['filename']}")
                 
-                # Step 3c: Process individual message
+                # Step 3c: Process with FFprobe fallback
                 try:
-                    result = await process_single_message_with_logging(msg, media_check_result)
+                    result, used_fallback = await process_message_with_ffprobe_fallback(msg, media_check_result)
+                    if used_fallback:
+                        fallback_used += 1
+                        
                     if result == "success":
                         processed += 1
                         LOGGER.info(f"✅ Successfully updated message {msg.id}")
@@ -117,7 +121,7 @@ async def process_channel_with_debug_logging(channel_id, message):
                         f"🔄 **Processing:** {chat.title}\n"
                         f"📊 **Messages:** {total_messages} | **Media:** {media_found}\n"
                         f"✅ **Updated:** {processed} | ❌ **Errors:** {errors}\n"
-                        f"ℹ️ **No Changes:** {skipped_no_change}\n"
+                        f"🔄 **Fallback Used:** {fallback_used} | ℹ️ **No Changes:** {skipped_no_change}\n"
                         f"⏭️ **Skipped:** {skipped_no_media + skipped_already_processed}")
                     
                     LOGGER.info(f"📊 Progress: {message_count} messages processed, {media_found} media found")
@@ -136,13 +140,14 @@ async def process_channel_with_debug_logging(channel_id, message):
             f"📁 **Media Found:** {media_found}\n"
             f"✅ **Updated:** {processed} files\n"
             f"❌ **Errors:** {errors} files\n"
+            f"🔄 **Fallback Used:** {fallback_used} files\n"
             f"ℹ️ **No Changes:** {skipped_no_change} files\n"
             f"⏭️ **Skipped (No Media):** {skipped_no_media}\n"
             f"⏭️ **Skipped (Already Processed):** {skipped_already_processed}"
         )
         
         await edit_message(progress_msg, final_stats)
-        LOGGER.info(f"🎉 Channel processing complete: {processed} updated, {errors} errors, {skipped_no_change} unchanged")
+        LOGGER.info(f"🎉 Channel processing complete: {processed} updated, {errors} errors, {fallback_used} fallbacks used")
             
     except Exception as e:
         LOGGER.error(f"💥 Channel processing error: {e}", exc_info=True)
@@ -239,71 +244,124 @@ async def already_has_mediainfo(msg):
         LOGGER.error(f"❌ Caption check error for message {msg.id}: {e}")
         return False
 
-async def process_single_message_with_logging(msg, media_info):
-    """Process single message with proper MediaInfo extraction and safe caption editing"""
-    temp_file = None
+async def process_message_with_ffprobe_fallback(msg, media_info):
+    """Process single message with FFprobe fallback system (5MB → 20MB)"""
+    temp_file_5mb = None
+    temp_file_20mb = None
+    used_fallback = False
+    
     try:
         LOGGER.info(f"🔄 Processing message {msg.id}: {media_info['filename']}")
         
-        # Step A: Download media
-        LOGGER.debug(f"📥 Step A: Downloading {media_info['filename']}")
-        temp_file = await download_5mb_with_logging(msg, media_info)
-        if not temp_file:
-            LOGGER.error(f"❌ Download failed for message {msg.id}")
-            return "error"
+        # Step A: Try 5MB first
+        LOGGER.debug(f"📥 Step A: Trying 5MB download for {media_info['filename']}")
+        temp_file_5mb = await download_partial_media_mb(msg, media_info, 5)
+        if not temp_file_5mb:
+            LOGGER.error(f"❌ 5MB download failed for message {msg.id}")
+            return "error", False
         
-        # Step B: Extract MediaInfo with improved parsing
-        LOGGER.debug(f"🔍 Step B: Extracting MediaInfo from {temp_file}")
-        mediainfo_data = await extract_mediainfo_improved(temp_file)
-        if not mediainfo_data or not mediainfo_data.get('has_content'):
-            LOGGER.warning(f"⚠️ No useful MediaInfo extracted for message {msg.id}")
-            return "error"
+        # Step B: Extract metadata with FFprobe (5MB attempt)
+        LOGGER.debug(f"🔍 Step B: Extracting metadata with FFprobe from 5MB file")
+        ffprobe_data = await extract_metadata_with_ffprobe(temp_file_5mb)
         
-        # Step C: Generate caption
-        LOGGER.debug(f"✏️ Step C: Generating enhanced caption")
+        # Step C: Check if 5MB gave us good results
+        if not ffprobe_data or not ffprobe_data.get('has_content') or not is_metadata_complete(ffprobe_data):
+            LOGGER.info(f"🔄 5MB insufficient for message {msg.id}, trying 20MB fallback")
+            used_fallback = True
+            
+            # Cleanup 5MB file
+            if temp_file_5mb and os.path.exists(temp_file_5mb):
+                os.unlink(temp_file_5mb)
+                temp_file_5mb = None
+            
+            # Step D: Try 20MB fallback
+            LOGGER.debug(f"📥 Step D: Fallback 20MB download for {media_info['filename']}")
+            temp_file_20mb = await download_partial_media_mb(msg, media_info, 20)
+            if not temp_file_20mb:
+                LOGGER.error(f"❌ 20MB fallback download failed for message {msg.id}")
+                return "error", True
+            
+            # Step E: Extract metadata with FFprobe (20MB attempt)
+            LOGGER.debug(f"🔍 Step E: Extracting metadata from 20MB fallback file")
+            ffprobe_data = await extract_metadata_with_ffprobe(temp_file_20mb)
+        
+        # Final check
+        if not ffprobe_data or not ffprobe_data.get('has_content'):
+            LOGGER.warning(f"⚠️ No useful metadata extracted for message {msg.id} even with fallback")
+            return "error", used_fallback
+        
+        # Step F: Generate caption
+        LOGGER.debug(f"✏️ Step F: Generating enhanced caption")
         current_caption = msg.caption or ""
-        enhanced_caption = generate_caption_with_logging(current_caption, mediainfo_data)
+        enhanced_caption = generate_caption_with_ffprobe_data(current_caption, ffprobe_data)
         
-        # Step D: Safe caption update with change detection
-        LOGGER.debug(f"📝 Step D: Safe caption update")
+        # Step G: Safe caption update
+        LOGGER.debug(f"📝 Step G: Safe caption update")
         result = await safe_edit_caption(msg, current_caption, enhanced_caption)
         
         if result:
-            LOGGER.info(f"✅ Successfully processed message {msg.id}")
-            return "success"
+            LOGGER.info(f"✅ Successfully processed message {msg.id} {'(with fallback)' if used_fallback else ''}")
+            return "success", used_fallback
         else:
             LOGGER.info(f"ℹ️ No changes made to message {msg.id}")
-            return "no_change"
+            return "no_change", used_fallback
         
     except Exception as e:
         LOGGER.error(f"💥 Processing error for message {msg.id}: {e}", exc_info=True)
-        return "error"
+        return "error", used_fallback
     finally:
-        # Cleanup
-        if temp_file and os.path.exists(temp_file):
-            try:
-                os.unlink(temp_file)
-                LOGGER.debug(f"🗑️ Cleaned up temp file: {temp_file}")
-            except Exception as e:
-                LOGGER.warning(f"⚠️ Cleanup warning: {e}")
+        # Cleanup both temp files
+        for temp_file in [temp_file_5mb, temp_file_20mb]:
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.unlink(temp_file)
+                    LOGGER.debug(f"🗑️ Cleaned up temp file: {temp_file}")
+                except Exception as e:
+                    LOGGER.warning(f"⚠️ Cleanup warning: {e}")
 
-async def download_5mb_with_logging(msg, media_info):
-    """Download 5MB with comprehensive logging"""
+def is_metadata_complete(ffprobe_data):
+    """Check if extracted metadata is complete enough"""
     try:
-        LOGGER.debug(f"📥 Starting download: {media_info['filename']} ({media_info['file_size']} bytes)")
+        video = ffprobe_data.get('video')
+        audio = ffprobe_data.get('audio', [])
         
-        # Create temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.tmp') as temp_file:
+        # Consider metadata complete if we have:
+        # - Video with codec and resolution OR
+        # - Audio with codec info
+        video_complete = (video and 
+                         video.get('codec_name') and 
+                         video.get('width') and 
+                         video.get('height'))
+        
+        audio_complete = (audio and 
+                         len(audio) > 0 and 
+                         audio[0].get('codec_name'))
+        
+        return video_complete or audio_complete
+    except Exception as e:
+        LOGGER.error(f"❌ Error checking metadata completeness: {e}")
+        return False
+
+async def download_partial_media_mb(msg, media_info, size_mb):
+    """Download partial media with specified size in MB"""
+    try:
+        LOGGER.debug(f"📥 Starting {size_mb}MB download: {media_info['filename']} ({media_info['file_size']} bytes)")
+        
+        # Create temp file with proper extension
+        file_ext = os.path.splitext(media_info['filename'])[1] or '.tmp'
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
             temp_path = temp_file.name
         
         LOGGER.debug(f"📁 Created temp file: {temp_path}")
         
-        # Download first 5MB using stream_media
+        # Calculate chunks needed
+        chunk_size = 100 * 1024  # 100KB per chunk
+        max_chunks = int((size_mb * 1024 * 1024) / chunk_size)
+        
         chunk_count = 0
-        max_chunks = 50  # ~5MB
         total_downloaded = 0
         
-        LOGGER.debug(f"📡 Starting stream download (max {max_chunks} chunks)")
+        LOGGER.debug(f"📡 Starting stream download (max {max_chunks} chunks for {size_mb}MB)")
         async for chunk in TgClient.user.stream_media(msg, limit=max_chunks):
             with open(temp_path, "ab") as f:
                 f.write(chunk)
@@ -315,111 +373,250 @@ async def download_5mb_with_logging(msg, media_info):
         
         if chunk_count > 0 and os.path.exists(temp_path):
             final_size = os.path.getsize(temp_path)
-            LOGGER.info(f"✅ Download complete: {final_size/1024/1024:.1f}MB in {chunk_count} chunks")
+            LOGGER.info(f"✅ {size_mb}MB download complete: {final_size/1024/1024:.1f}MB in {chunk_count} chunks")
             return temp_path
         else:
-            LOGGER.error(f"❌ Download failed: no chunks received")
+            LOGGER.error(f"❌ {size_mb}MB download failed: no chunks received")
             return None
         
     except Exception as e:
-        LOGGER.error(f"💥 Download error: {e}", exc_info=True)
+        LOGGER.error(f"💥 {size_mb}MB download error: {e}", exc_info=True)
         return None
 
-async def extract_mediainfo_improved(file_path):
-    """Improved MediaInfo extraction with better track detection"""
+async def extract_metadata_with_ffprobe(file_path):
+    """Extract comprehensive metadata using FFprobe with enhanced parameters"""
     try:
-        LOGGER.debug(f"🔍 Parsing MediaInfo from: {file_path}")
+        LOGGER.debug(f"🔍 Running FFprobe on: {file_path}")
         
-        # Parse with pymediainfo
-        media_info = MediaInfo.parse(file_path)
-        LOGGER.debug(f"📊 MediaInfo parsed, {len(media_info.tracks)} tracks found")
+        # Enhanced FFprobe command for partial files
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-analyzeduration", "15000000",    # 15 seconds analysis duration
+            "-probesize", "15000000",          # 15MB probe size
+            "-show_entries", "format=duration,bit_rate,size:stream=codec_type,codec_name,width,height,channels,sample_rate,bit_rate,tags",
+            "-print_format", "json",
+            file_path
+        ]
         
+        # Run FFprobe
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await proc.communicate()
+        
+        if stderr:
+            stderr_text = stderr.decode().strip()
+            if "partial file" in stderr_text.lower() or "truncated" in stderr_text.lower():
+                LOGGER.warning(f"⚠️ FFprobe detected partial/truncated file, but continuing")
+            elif stderr_text:
+                LOGGER.warning(f"⚠️ FFprobe warnings: {stderr_text}")
+        
+        if proc.returncode != 0 and not stdout:
+            LOGGER.error(f"❌ FFprobe failed with return code {proc.returncode}")
+            return None
+        
+        # Parse JSON output
+        try:
+            data = json.loads(stdout.decode())
+        except json.JSONDecodeError as e:
+            LOGGER.error(f"❌ Failed to parse FFprobe JSON output: {e}")
+            return None
+        
+        LOGGER.debug(f"📊 FFprobe data: {len(data.get('streams', []))} streams found")
+        
+        # Parse streams
         video_info = None
         audio_tracks = []
         
-        # Enhanced track parsing with detailed logging
-        for i, track in enumerate(media_info.tracks):
-            track_type = getattr(track, 'track_type', 'Unknown')
-            LOGGER.debug(f"🎬 Track {i}: Type={track_type}")
+        for i, stream in enumerate(data.get('streams', [])):
+            codec_type = stream.get('codec_type')
+            LOGGER.debug(f"🎬 Stream {i}: Type={codec_type}")
             
-            if track_type == "Video" and not video_info:
-                # Extract video information
-                codec = getattr(track, 'codec', None) or getattr(track, 'format', None) or 'Unknown'
-                width = getattr(track, 'width', None)
-                height = getattr(track, 'height', None) 
-                frame_rate = getattr(track, 'frame_rate', None)
+            if codec_type == "video" and not video_info:
+                codec_name = stream.get('codec_name', 'Unknown')
+                width = stream.get('width')
+                height = stream.get('height')
                 
                 video_info = {
-                    'codec': codec,
+                    'codec_name': codec_name,
+                    'codec': codec_name,  # Compatibility
                     'width': width,
                     'height': height,
-                    'frame_rate': frame_rate
+                    'aspect_ratio': stream.get('display_aspect_ratio'),
+                    'frame_rate': stream.get('avg_frame_rate'),
+                    'bit_rate': stream.get('bit_rate')
                 }
-                LOGGER.debug(f"📹 Video track found: {video_info}")
+                LOGGER.debug(f"📹 Video stream: {video_info}")
                 
-            elif track_type == "Audio":
-                # Extract audio information
-                language = getattr(track, 'language', None) or 'Unknown'
-                codec = getattr(track, 'codec', None) or getattr(track, 'format', None) or 'Unknown'
-                channels = getattr(track, 'channel_s', None) or getattr(track, 'channels', None) or 1
+            elif codec_type == "audio":
+                codec_name = stream.get('codec_name', 'Unknown')
+                channels = stream.get('channels', 1)
+                
+                # Extract language from tags
+                tags = stream.get('tags', {}) or {}
+                language = None
+                for key in ['language', 'lang', 'LANGUAGE', 'Language']:
+                    if key in tags:
+                        language = tags[key]
+                        break
                 
                 audio_track = {
-                    'language': language,
-                    'codec': codec,
-                    'channels': channels
+                    'codec_name': codec_name,
+                    'codec': codec_name,  # Compatibility
+                    'channels': channels,
+                    'language': language or 'Unknown',
+                    'sample_rate': stream.get('sample_rate'),
+                    'bit_rate': stream.get('bit_rate'),
+                    'tags': tags
                 }
                 audio_tracks.append(audio_track)
-                LOGGER.debug(f"🎵 Audio track found: {audio_track}")
-            
-            elif track_type == "General":
-                # Sometimes video info is in General track for certain formats
-                if not video_info:
-                    codec = (getattr(track, 'video_format_list', None) or 
-                            getattr(track, 'video_codecs', None) or
-                            getattr(track, 'format', None))
-                    width = getattr(track, 'width', None)
-                    height = getattr(track, 'height', None)
-                    
-                    if codec and codec != 'Unknown':
-                        video_info = {
-                            'codec': codec,
-                            'width': width,
-                            'height': height,
-                            'frame_rate': None
-                        }
-                        LOGGER.debug(f"📹 Video info from General track: {video_info}")
-                
-                # Check for audio info in General track
-                audio_count = (getattr(track, 'audio_count', None) or 
-                              getattr(track, 'count_of_audio_streams', None))
-                if audio_count and not audio_tracks:
-                    try:
-                        # Create placeholder audio tracks
-                        for i in range(int(audio_count)):
-                            audio_tracks.append({
-                                'language': 'Unknown',
-                                'codec': 'Unknown', 
-                                'channels': 1
-                            })
-                        LOGGER.debug(f"🎵 Audio tracks from General: {audio_count}")
-                    except (ValueError, TypeError):
-                        pass
+                LOGGER.debug(f"🎵 Audio stream: {audio_track}")
+        
+        # Get format information
+        format_info = data.get('format', {})
+        duration = format_info.get('duration')
+        bit_rate = format_info.get('bit_rate')
         
         # Determine if we have useful content
-        has_content = bool(video_info and video_info.get('codec') != 'Unknown') or bool(audio_tracks)
+        has_content = bool(video_info) or bool(audio_tracks)
         
         result = {
             'video': video_info,
             'audio': audio_tracks,
+            'format': {
+                'duration': duration,
+                'bit_rate': bit_rate,
+                'size': format_info.get('size')
+            },
             'has_content': has_content
         }
         
-        LOGGER.info(f"✅ MediaInfo extracted: Video={bool(video_info)}, Audio={len(audio_tracks)} tracks, HasContent={has_content}")
+        LOGGER.info(f"✅ FFprobe extracted: Video={bool(video_info)}, Audio={len(audio_tracks)} tracks, HasContent={has_content}")
         return result
         
     except Exception as e:
-        LOGGER.error(f"💥 MediaInfo extraction error: {e}", exc_info=True)
+        LOGGER.error(f"💥 FFprobe extraction error: {e}", exc_info=True)
         return None
+
+def generate_caption_with_ffprobe_data(original_caption, ffprobe_data):
+    """Generate caption with comprehensive FFprobe metadata"""
+    try:
+        if not ffprobe_data or not ffprobe_data.get('has_content'):
+            LOGGER.warning("⚠️ No FFprobe content to generate caption")
+            return original_caption or ""
+            
+        LOGGER.debug(f"✏️ Generating caption with FFprobe data (original length: {len(original_caption)})")
+        
+        # Start with original caption
+        enhanced = original_caption.strip() if original_caption else ""
+        mediainfo_lines = []
+        
+        # Video information
+        video = ffprobe_data.get('video')
+        if video and video.get('codec_name'):
+            codec = video.get('codec_name', 'Unknown')
+            width = video.get('width')
+            height = video.get('height')
+            
+            # Determine resolution label
+            resolution = ""
+            if height:
+                try:
+                    height = int(height)
+                    if height >= 2160:
+                        resolution = "4K"
+                    elif height >= 1440:
+                        resolution = "1440p" 
+                    elif height >= 1080:
+                        resolution = "1080p"
+                    elif height >= 720:
+                        resolution = "720p"
+                    elif height >= 480:
+                        resolution = "480p"
+                    else:
+                        resolution = f"{height}p"
+                except (ValueError, TypeError):
+                    if width and height:
+                        resolution = f"{width}x{height}"
+            
+            # Build video line
+            video_line = f"Video: {codec.upper()}"
+            if resolution:
+                video_line += f" {resolution}"
+            
+            mediainfo_lines.append(video_line)
+            LOGGER.debug(f"📹 Generated video line: {video_line}")
+        
+        # Audio information
+        audio_tracks = ffprobe_data.get('audio', [])
+        if audio_tracks:
+            audio_count = len(audio_tracks)
+            
+            # Extract languages
+            languages = []
+            for audio in audio_tracks:
+                lang = audio.get('language', 'Unknown').upper()
+                
+                # Clean and standardize language codes
+                if lang and lang not in ['UNKNOWN', 'UND', 'UNDEFINED', 'N/A', '']:
+                    # Convert common language codes
+                    lang_map = {
+                        'EN': 'ENG', 'ENGLISH': 'ENG',
+                        'HI': 'HIN', 'HINDI': 'HIN',
+                        'ES': 'SPA', 'SPANISH': 'SPA',
+                        'FR': 'FRA', 'FRENCH': 'FRA',
+                        'DE': 'GER', 'GERMAN': 'GER',
+                        'IT': 'ITA', 'ITALIAN': 'ITA',
+                        'JA': 'JPN', 'JAPANESE': 'JPN',
+                        'KO': 'KOR', 'KOREAN': 'KOR',
+                        'ZH': 'CHI', 'CHINESE': 'CHI',
+                        'AR': 'ARA', 'ARABIC': 'ARA',
+                        'RU': 'RUS', 'RUSSIAN': 'RUS',
+                        'PT': 'POR', 'PORTUGUESE': 'POR'
+                    }
+                    lang = lang_map.get(lang, lang)
+                    
+                    if lang not in languages:
+                        languages.append(lang)
+            
+            # Build audio line
+            audio_line = f"Audio: {audio_count}"
+            if languages:
+                # Show up to 3 languages for clean display
+                lang_display = ', '.join(languages[:3])
+                if len(languages) > 3:
+                    lang_display += f" (+{len(languages)-3})"
+                audio_line += f" ({lang_display})"
+            
+            mediainfo_lines.append(audio_line)
+            LOGGER.debug(f"🎵 Generated audio line: {audio_line}")
+        
+        # Combine with original caption
+        if mediainfo_lines:
+            mediainfo_section = "\n\n" + "\n".join(mediainfo_lines)
+            enhanced_caption = enhanced + mediainfo_section
+            
+            # Respect Telegram's 1024 character caption limit
+            if len(enhanced_caption) > 1020:
+                max_original = 1020 - len(mediainfo_section) - 5
+                if max_original > 0:
+                    enhanced_caption = enhanced[:max_original] + "..." + mediainfo_section
+                else:
+                    enhanced_caption = mediainfo_section
+            
+            LOGGER.debug(f"✅ Caption generated with FFprobe (final length: {len(enhanced_caption)})")
+            return enhanced_caption
+        
+        LOGGER.warning("⚠️ No metadata lines generated from FFprobe - returning original")
+        return enhanced
+        
+    except Exception as e:
+        LOGGER.error(f"💥 Caption generation error: {e}", exc_info=True)
+        return original_caption or ""
 
 async def safe_edit_caption(msg, current_caption, new_caption):
     """Safely edit caption with change detection and error handling"""
@@ -459,109 +656,6 @@ async def safe_edit_caption(msg, current_caption, new_caption):
     except Exception as e:
         LOGGER.error(f"❌ Caption edit error for message {msg.id}: {e}")
         return False
-
-def generate_caption_with_logging(original_caption, mediainfo_data):
-    """Generate caption with enhanced MediaInfo data"""
-    try:
-        if not mediainfo_data or not mediainfo_data.get('has_content'):
-            LOGGER.warning("⚠️ No MediaInfo content to generate caption")
-            return original_caption or ""
-            
-        LOGGER.debug(f"✏️ Generating caption (original length: {len(original_caption)})")
-        
-        # Start with original
-        enhanced = original_caption.strip() if original_caption else ""
-        mediainfo_lines = []
-        
-        # Video information
-        video = mediainfo_data.get('video')
-        if video and video.get('codec') and video.get('codec') != 'Unknown':
-            codec = video.get('codec', 'Unknown')
-            height = video.get('height')
-            
-            # Determine resolution
-            if height:
-                try:
-                    height = int(height)
-                    if height >= 2160:
-                        resolution = "4K"
-                    elif height >= 1440:
-                        resolution = "1440p" 
-                    elif height >= 1080:
-                        resolution = "1080p"
-                    elif height >= 720:
-                        resolution = "720p"
-                    elif height >= 480:
-                        resolution = "480p"
-                    else:
-                        resolution = f"{height}p"
-                except (ValueError, TypeError):
-                    resolution = ""
-            else:
-                resolution = ""
-            
-            # Build video line
-            video_line = f"Video: {codec}"
-            if resolution:
-                video_line += f" {resolution}"
-            
-            mediainfo_lines.append(video_line)
-            LOGGER.debug(f"📹 Generated video line: {video_line}")
-        
-        # Audio information
-        audio_tracks = mediainfo_data.get('audio', [])
-        if audio_tracks:
-            audio_count = len(audio_tracks)
-            
-            # Extract languages
-            languages = []
-            for audio in audio_tracks:
-                lang = audio.get('language', 'Unknown').upper()
-                # Clean language codes
-                if lang and lang not in ['UNKNOWN', 'UND', 'UNDEFINED', '']:
-                    # Standardize common language codes
-                    if lang in ['EN', 'ENG', 'ENGLISH']:
-                        lang = 'ENG'
-                    elif lang in ['HI', 'HIN', 'HINDI']:
-                        lang = 'HIN'
-                    elif lang in ['ES', 'SPA', 'SPANISH']:
-                        lang = 'SPA'
-                    elif lang in ['FR', 'FRA', 'FRENCH']:
-                        lang = 'FRA'
-                    
-                    if lang not in languages:
-                        languages.append(lang)
-            
-            # Build audio line
-            audio_line = f"Audio: {audio_count}"
-            if languages:
-                audio_line += f" ({', '.join(languages[:3])})"
-            
-            mediainfo_lines.append(audio_line)
-            LOGGER.debug(f"🎵 Generated audio line: {audio_line}")
-        
-        # Combine with original caption
-        if mediainfo_lines:
-            mediainfo_section = "\n\n" + "\n".join(mediainfo_lines)
-            enhanced_caption = enhanced + mediainfo_section
-            
-            # Respect Telegram's caption limit (1024 characters)
-            if len(enhanced_caption) > 1020:
-                max_original = 1020 - len(mediainfo_section) - 5
-                if max_original > 0:
-                    enhanced_caption = enhanced[:max_original] + "..." + mediainfo_section
-                else:
-                    enhanced_caption = mediainfo_section
-            
-            LOGGER.debug(f"✅ Caption generated (final length: {len(enhanced_caption)})")
-            return enhanced_caption
-        
-        LOGGER.warning("⚠️ No MediaInfo lines generated - returning original")
-        return enhanced
-        
-    except Exception as e:
-        LOGGER.error(f"💥 Caption generation error: {e}", exc_info=True)
-        return original_caption or ""
 
 async def get_target_channels(message):
     """Extract channel IDs with logging"""
