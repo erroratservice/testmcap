@@ -3,6 +3,8 @@ RUN apt-get update && apt-get install -y \
     ffmpeg build-essential python3-dev gcc make \
     wget \
     curl \
+    libffi-dev \
+    libssl-dev \
     git \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
