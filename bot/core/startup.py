@@ -5,12 +5,59 @@ Clean bot startup sequence
 import asyncio
 import logging
 import os
+from pyrogram.errors import MessageNotModified
 from bot.core.config import Config
 from bot.core.client import TgClient
 from bot.core.handlers import register_handlers
 from bot.database.mongodb import MongoDB
+from bot.helpers.message_utils import edit_message
 
 LOGGER = logging.getLogger(__name__)
+
+async def update_status_periodically():
+    """A background task that periodically updates the central status message."""
+    while True:
+        await asyncio.sleep(5) # Update every 5 seconds
+        if MongoDB.db is None:
+            continue
+
+        status_message_doc = await MongoDB.get_status_message()
+        if not status_message_doc:
+            continue
+
+        chat_id = status_message_doc.get('chat_id')
+        message_id = status_message_doc.get('message_id')
+        
+        try:
+            active_scans = await MongoDB.get_interrupted_scans()
+            
+            text = "📊 **Live Task Status**\n\n"
+            if not active_scans:
+                text += "✅ Bot is currently idle. No active tasks."
+            else:
+                for scan in active_scans:
+                    operation = scan.get('operation', 'Processing').title()
+                    channel = scan.get('chat_title', 'Unknown')
+                    current = scan.get('processed_messages', 0)
+                    total = scan.get('total_messages', 0)
+                    progress = (current / total * 100) if total > 0 else 0
+                    bar = f"[{'█' * int(progress / 10)}{'░' * (10 - int(progress / 10))}] {progress:.1f}%"
+                    
+                    text += f"**- {operation}:** `{channel}`\n"
+                    text += f"  `{bar}`\n"
+                    text += f"  `{current} / {total} items processed.`\n\n"
+
+            class DummyMessage:
+                def __init__(self, cid, mid):
+                    self.chat = type('Chat', (), {'id': cid})()
+                    self.id = mid
+
+            await edit_message(DummyMessage(chat_id, message_id), text)
+
+        except MessageNotModified:
+            pass
+        except Exception as e:
+            LOGGER.error(f"Could not update status message: {e}")
 
 async def check_and_notify_interrupted_scans():
     """Check for interrupted scans and notify the owner."""
@@ -54,6 +101,10 @@ async def main():
         await check_and_notify_interrupted_scans()
         
         register_handlers()
+
+        # Start the background task for status updates
+        asyncio.create_task(update_status_periodically())
+        LOGGER.info("✅ Started background status updater.")
         
         LOGGER.info("🚀 Media Indexing Bot started successfully!")
         
