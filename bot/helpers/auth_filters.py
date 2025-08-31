@@ -1,16 +1,16 @@
 """
-Fixed authorization filters for Media Indexing Bot
+Clean authorization filters for Media Indexing Bot
 """
 
 from pyrogram import filters
 from bot.core.config import Config
 
 class AuthFilters:
-    """Custom authorization filters with correct Pyrogram signatures"""
+    """Custom authorization filters"""
     
     @staticmethod
     def authorized_filter(_, __, message):
-        """Check if user is authorized - MUST be sync function for Pyrogram"""
+        """Check if user is authorized"""
         user_id = message.from_user.id if message.from_user else None
         
         if not user_id:
@@ -31,5 +31,4 @@ class AuthFilters:
         # If no restrictions, allow owner only
         return False
     
-    # Create the filter using the correct function
     authorized = filters.create(authorized_filter)
