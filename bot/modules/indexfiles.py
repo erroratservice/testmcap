@@ -3,18 +3,24 @@ Index files command for organizing channel content
 """
 
 import logging
+import asyncio
 from collections import defaultdict
 from datetime import datetime
 from bot.core.client import TgClient
 from bot.core.config import Config
 from bot.helpers.message_utils import send_message
 from bot.helpers.file_utils import extract_channel_list, parse_media_filename
+from bot.database.mongodb import MongoDB
 
 LOGGER = logging.getLogger(__name__)
 
 async def indexfiles_handler(client, message):
     """Handler for /indexfiles command"""
     try:
+        if MongoDB.db is None:
+            await send_message(message, "❌ **Error:** Database is not connected. This feature is disabled.")
+            return
+
         channels = await get_target_channels(message)
         if not channels:
             await send_message(message,
@@ -23,11 +29,12 @@ async def indexfiles_handler(client, message):
                 "• Reply to file with channel IDs")
             return
         
-        for channel_id in channels:
-            await create_channel_index(channel_id, message)
+        channel_id = channels[0]
+        await send_message(message, f"✅ Indexing task for channel `{channel_id}` has been queued. See /status for live progress.")
+        asyncio.create_task(create_channel_index(channel_id, message))
             
     except Exception as e:
-        LOGGER.error(f"IndexFiles error: {e}")
+        LOGGER.error(f"IndexFiles handler error: {e}")
         await send_message(message, f"❌ **Error:** {e}")
 
 async def get_target_channels(message):
@@ -43,43 +50,47 @@ async def get_target_channels(message):
 
 async def create_channel_index(channel_id, message):
     """Create organized index for channel content"""
+    scan_id = f"index_{channel_id}_{message.id}"
+    user_id = message.from_user.id
+    
     try:
         chat = await TgClient.user.get_chat(channel_id)
-        progress_msg = await send_message(message,
-            f"📊 **Indexing:** {chat.title}\n"
-            f"🔍 Scanning and organizing content...")
-        
-        content_index = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-        file_count = 0
         
         history_generator = TgClient.user.get_chat_history(chat_id=channel_id)
         messages = [msg async for msg in history_generator]
-        LOGGER.info(f"Found {len(messages)} messages to index in {chat.title}.")
+        total_messages = len(messages)
+        LOGGER.info(f"Found {total_messages} messages to index in {chat.title}.")
+        
+        await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "Indexing")
 
-        for msg in reversed(messages):
+        content_index = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        file_count = 0
+
+        for i, msg in enumerate(reversed(messages)):
             if msg.media and hasattr(msg.media, 'file_name'):
                 parsed = parse_media_filename(msg.media.file_name)
                 if parsed:
                     add_to_index(content_index, parsed, msg)
                     file_count += 1
+            if i % 20 == 0: # Update progress less frequently for indexing
+                await MongoDB.update_scan_progress(scan_id, i + 1)
         
         if content_index:
             index_text = format_content_index(chat.title, content_index, file_count)
             
             if Config.INDEX_CHANNEL_ID:
                 await TgClient.bot.send_message(Config.INDEX_CHANNEL_ID, index_text)
-            
-            await send_message(message,
-                f"✅ **Indexed:** {chat.title}\n"
-                f"📊 **Files:** {file_count:,}\n"
-                f"🎬 **Titles:** {len(content_index):,}")
+                await send_message(message, f"✅ **Index for {chat.title} created successfully** and posted to the index channel.")
+            else:
+                 await send_message(message, f"✅ **Index for {chat.title} created successfully**.\n(Index channel not configured, so not posted anywhere).")
         else:
-            await send_message(message,
-                f"⚠️ No indexable content found in {chat.title}")
+            await send_message(message, f"⚠️ No indexable content found in {chat.title}")
             
     except Exception as e:
         LOGGER.error(f"Error indexing {channel_id}: {e}")
         await send_message(message, f"❌ Error indexing {channel_id}: {e}")
+    finally:
+        await MongoDB.end_scan(scan_id)
 
 def add_to_index(content_index, parsed, message):
     """Add parsed content to index structure"""
