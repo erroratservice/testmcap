@@ -1,20 +1,20 @@
 """
-Corrected authorization filters for Pyrofork with proper signature
+Authorization filters with correct underscore placeholders
 """
 
 from pyrogram import filters
 from bot.core.config import Config
 
 class AuthFilters:
-    """Custom authorization filters with correct Pyrofork signature"""
+    """Custom authorization filters using underscore convention"""
     
     @staticmethod
-    async def authorized_filter(flt, client, message):
+    async def authorized_filter(_, __, message):
         """
-        Authorization filter - MUST have exactly 3 parameters:
-        flt: filter instance
-        client: client instance  
-        message: message object
+        Authorization filter callback
+        _: filter instance (unused)
+        __: client instance (unused)  
+        message: message object (used for auth check)
         """
         user_id = message.from_user.id if message.from_user else None
         
@@ -30,10 +30,10 @@ class AuthFilters:
             try:
                 authorized_ids = [int(x.strip()) for x in Config.AUTHORIZED_CHATS.split(',') if x.strip()]
                 return user_id in authorized_ids
-            except ValueError:
+            except (ValueError, AttributeError):
                 pass
         
         return False
     
-    # Create the filter using the correct function
+    # Create the filter
     authorized = filters.create(authorized_filter)
