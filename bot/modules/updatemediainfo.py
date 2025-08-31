@@ -5,6 +5,7 @@ Enhanced MediaInfo with multi-chunk extraction and clean output
 import asyncio
 import os
 import json
+from aiofiles import open as aiopen
 from aiofiles.os import remove as aioremove
 from pyrogram.errors import MessageNotModified
 from bot.core.client import TgClient
@@ -19,7 +20,7 @@ MEDIAINFO_TIMEOUT = 30
 async def updatemediainfo_handler(client, message):
     """Handler with database-driven force-processing."""
     try:
-        if not MongoDB.db:
+        if MongoDB.db is None:
             await send_message(message, "❌ **Error:** Database is not connected. Cannot use this feature.")
             return
 
@@ -177,7 +178,7 @@ async def process_message_enhanced(client, message):
 
         for step in CHUNK_STEPS:
             try:
-                async with open(temp_file, "wb") as f:
+                async with aiopen(temp_file, "wb") as f:
                     chunk_count = 0
                     async for chunk in client.stream_media(message, limit=step):
                         await f.write(chunk)
