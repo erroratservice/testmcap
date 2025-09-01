@@ -1,50 +1,68 @@
 """
-Settings command for user preferences
+Interactive settings command for updating the index channel.
 """
 
 import logging
-from bot.helpers.message_utils import send_message
+from bot.core.config import Config
+from bot.helpers.message_utils import send_message, edit_message
 from bot.helpers.keyboard_utils import build_settings_keyboard
+from bot.core.handlers import user_states # Import the state tracker
 
 LOGGER = logging.getLogger(__name__)
 
 async def settings_handler(client, message):
-    """Handler for /settings command"""
+    """Handler for the /settings command."""
     try:
-        user_id = message.from_user.id
+        current_id = Config.INDEX_CHANNEL_ID if Config.INDEX_CHANNEL_ID != 0 else "Not Set"
         
-        # Get user preferences (from database in production)
-        preferences = get_user_preferences(user_id)
+        settings_text = (f"⚙️ **Bot Settings**\n\n"
+                         f"Here you can manage the bot's configuration.\n\n"
+                         f"**Current Index Channel ID:** `{current_id}`")
         
-        settings_text = f"""⚙️ **User Settings**
-👤 **User:** {message.from_user.mention}
-
-**Current Preferences:**
-├─ 📹 **MediaInfo Enhancement:** {'✅ Enabled' if preferences.get('mediainfo_enabled', True) else '❌ Disabled'}
-├─ 🔔 **Progress Notifications:** {'✅ Enabled' if preferences.get('notifications', True) else '❌ Disabled'}
-├─ 📺 **Default Channels:** {len(preferences.get('default_channels', []))} configured
-├─ 🎨 **Caption Format:** {preferences.get('caption_format', 'Standard')}
-└─ 🌍 **Timezone:** Asia/Kolkata
-
-**Bot Status:**
-├─ 🤖 **Version:** v1.0.0
-├─ 📊 **Index Channel:** {'✅ Configured' if True else '❌ Not Set'}
-└─ 💾 **Database:** {'✅ Connected' if True else '❌ Disconnected'}
-
-Use buttons below to modify settings."""
-        
-        keyboard = build_settings_keyboard(user_id)
+        keyboard = build_settings_keyboard()
         await send_message(message, settings_text, keyboard)
         
     except Exception as e:
         LOGGER.error(f"Settings handler error: {e}")
         await send_message(message, f"❌ Error loading settings: {e}")
 
-def get_user_preferences(user_id):
-    """Get user preferences (placeholder - use database in production)"""
-    return {
-        'mediainfo_enabled': True,
-        'notifications': True,
-        'default_channels': [],
-        'caption_format': 'Standard'
-    }
+async def set_index_channel_callback(client, callback_query):
+    """Handles the 'Set Index Channel' button press."""
+    user_id = callback_query.from_user.id
+    
+    # Set the user's state to expect the next message to be the channel ID
+    user_states[user_id] = "awaiting_index_channel"
+    
+    await callback_query.answer("Please send the new Index Channel ID.", show_alert=True)
+    await edit_message(callback_query.message, 
+                       (f"Okay, I'm ready for the new Index Channel ID.\n\n"
+                        f"Please send the ID now (e.g., `-1001234567890`)."))
+
+async def receive_channel_id_handler(client, message):
+    """Handles the message containing the new channel ID."""
+    user_id = message.from_user.id
+    new_id_text = message.text.strip()
+    
+    try:
+        # Validate that the ID is a valid integer
+        new_id = int(new_id_text)
+        
+        # A simple check to ensure it looks like a channel ID
+        if not new_id_text.startswith("-100"):
+            await send_message(message, "⚠️ **Invalid ID:** Channel IDs should be negative and usually start with `-100`. Please try again.")
+            return
+
+        # Update the config in memory
+        Config.set('INDEX_CHANNEL_ID', new_id)
+        
+        await send_message(message, f"✅ **Success!** Index Channel ID has been updated to `{new_id}`.")
+        
+    except ValueError:
+        await send_message(message, "❌ **Error:** That doesn't look like a valid number. Please send only the channel ID.")
+    except Exception as e:
+        LOGGER.error(f"Error setting new channel ID: {e}")
+        await send_message(message, "❌ An unexpected error occurred. Please try again.")
+    finally:
+        # Clean up the user's state
+        if user_id in user_states:
+            del user_states[user_id]
