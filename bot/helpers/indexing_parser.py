@@ -38,20 +38,15 @@ def parse_media_info(filename, caption=None):
     """
     base_name, is_split = get_base_name(filename)
     
-    # Step 1: Get all possible info from the filename.
     filename_info = extract_info_from_text(base_name)
     
-    # If the filename is unparsable for basic info (title, type), we can't continue.
     if not filename_info:
         return None
 
-    # Step 2: Get all possible info from the caption.
     caption_info = extract_info_from_text(caption or "")
     
-    # Step 3: Intelligently merge the results.
     final_info = filename_info.copy()
     
-    # For quality, codec, and encoder, prioritize caption info if it's valid, otherwise use filename info.
     filename_quality = filename_info.get('quality', 'Unknown')
     caption_quality = caption_info.get('quality', 'Unknown') if caption_info else 'Unknown'
     final_info['quality'] = caption_quality if caption_quality != 'Unknown' else filename_quality
@@ -64,7 +59,6 @@ def parse_media_info(filename, caption=None):
     caption_encoder = caption_info.get('encoder', 'Unknown') if caption_info else 'Unknown'
     final_info['encoder'] = caption_encoder if caption_encoder != 'Unknown' else filename_encoder
 
-    # Add back metadata about the file itself.
     final_info['is_split'] = is_split
     final_info['base_name'] = base_name
     
@@ -104,7 +98,6 @@ def extract_info_from_text(text):
         title, year = movie_match.groups()
         return {'title': title.replace('.', ' ').strip().title(), 'year': int(year), 'quality': quality, 'codec': codec, 'encoder': encoder, 'type': 'movie'}
     
-    # Fallback for captions that might only contain quality/codec/encoder info
     if any(val != 'Unknown' for val in [quality, codec, encoder]):
         return {'quality': quality, 'codec': codec, 'encoder': encoder}
 
@@ -126,11 +119,9 @@ def get_codec(text):
 
 def get_encoder(text):
     """A more robust encoder detection method that is strictly based on the known list."""
-    # Remove the file extension and split by all common delimiters
     text_without_ext = re.sub(r'\.\w+$', '', text)
     potential_tags = re.split(r'[ ._\[\]()\-]+', text_without_ext)
     
-    # Iterate from the end of the filename backwards
     for tag in reversed(potential_tags):
         if not tag: continue
         tag_upper = tag.upper()
@@ -138,4 +129,3 @@ def get_encoder(text):
             return tag_upper
             
     return 'Unknown'
-    
