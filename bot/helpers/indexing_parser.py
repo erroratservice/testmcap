@@ -59,7 +59,7 @@ def parse_media_info(filename, caption=None):
     caption_codec = caption_info.get('codec', 'Unknown') if caption_info else 'Unknown'
     final_info['codec'] = caption_codec if caption_codec != 'Unknown' else filename_codec
     
-    # Encoder information is most reliable from the filename.
+    # Encoder information is most reliable from the filename and is strictly checked.
     final_info['encoder'] = filename_info.get('encoder', 'Unknown')
 
     # Add back metadata about the file itself.
@@ -140,16 +140,24 @@ def get_codec(text):
     return 'Unknown'
 
 def get_encoder(text):
-    """Strict encoder detection that only returns known encoders."""
+    """
+    Strict encoder detection. It ONLY returns an encoder if it's found in the
+    KNOWN_ENCODERS list. It will NEVER guess or return a random word.
+    """
+    # Split the text by common delimiters to get individual tags.
     potential_tags = re.split(r'[ ._\[\]()\-]+', text)
     
+    # Iterate from the end of the filename backwards, as encoders are usually last.
     for tag in reversed(potential_tags):
         if not tag:
-            continue
+            continue # Skip any empty strings from the split.
             
         tag_upper = tag.upper()
         
+        # The ONLY condition for returning an encoder: it must be in the known list.
         if tag_upper in KNOWN_ENCODERS:
             return tag_upper
             
+    # If the loop finishes without finding a match, it means there is no known
+    # encoder in the filename. Therefore, we return 'Unknown'.
     return 'Unknown'
