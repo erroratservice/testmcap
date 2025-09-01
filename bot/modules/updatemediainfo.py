@@ -230,7 +230,7 @@ async def process_message_full_download_only(client, message):
         
         return False, "failed"
     except Exception as e:
-        LOGGER.error(f"Full download processing error for message {message.id}: {e}")
+        LOGGER.error(f"Full download processing error for message {message.id}: {e}", exc_info=True)
         return False, "error"
     finally:
         await cleanup_files([temp_file])
