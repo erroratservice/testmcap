@@ -36,14 +36,12 @@ class MongoDB:
 
     @classmethod
     async def get_cached_message_ids(cls, channel_id):
-        """Retrieves a list of cached message IDs for a given channel."""
         if cls.message_ids_cache is None: return []
         document = await cls.message_ids_cache.find_one({'_id': channel_id})
         return document.get('message_ids', []) if document else []
 
     @classmethod
     async def update_cached_message_ids(cls, channel_id, new_ids):
-        """Adds new message IDs to the cache for a given channel."""
         if cls.message_ids_cache is None: return
         await cls.message_ids_cache.update_one(
             {'_id': channel_id},
@@ -53,42 +51,31 @@ class MongoDB:
 
     @classmethod
     async def clear_cached_message_ids(cls, channel_id):
-        """Clears all cached message IDs for a given channel."""
         if cls.message_ids_cache is None: return
         await cls.message_ids_cache.delete_one({'_id': channel_id})
 
-    # --- NEW METHOD TO CLEAR MEDIA DATA ---
     @classmethod
     async def clear_media_data_for_channel(cls, channel_id):
-        """
-        Deletes all media documents and post trackers associated with a specific channel ID
-        to ensure a clean slate for a rescan.
-        """
         if cls.db is None: return
         
-        # This is a bit complex as media is not directly tied to a channel_id.
-        # We will delete the posts, which forces a full rebuild.
-        # A more robust solution might involve adding channel_id to media_data documents.
-        
-        # For now, let's clear the post trackers, which will force new posts to be created.
         post_prefix = f"post_{channel_id}_"
-        await cls.task_collection.delete_many({'_id': {'$regex': f'^{post_prefix}'}})
-
-        # And also clear the actual aggregated media data.
-        # This is tricky without a channel_id in the media_collection.
-        # A simple approach for a full reset is to clear the whole collection.
-        # Be cautious with this in a multi-user environment.
-        # For this bot's purpose, we'll assume a clean wipe is acceptable on rescan.
+        # Find all post tracker documents for the channel
+        post_docs = await cls.task_collection.find({'_id': {'$regex': f'^{post_prefix}'}}).to_list(length=None)
         
-        # Let's find all titles associated with the channel's posts and delete them.
-        cursor = cls.task_collection.find({'_id': {'$regex': f'^{post_prefix}'}})
-        titles_to_delete = [doc['title'] async for doc in cursor]
+        if not post_docs:
+            LOGGER.info(f"No existing post data to clear for channel {channel_id}.")
+            return
+
+        # Extract the titles from these documents
+        titles_to_delete = [doc['title'] for doc in post_docs]
         
         if titles_to_delete:
+            # Delete the media data documents matching these titles
             await cls.media_collection.delete_many({'_id': {'$in': titles_to_delete}})
-            LOGGER.info(f"Cleared media data for {len(titles_to_delete)} titles from channel {channel_id}.")
+            # Delete the post tracker documents themselves
+            await cls.task_collection.delete_many({'_id': {'$regex': f'^{post_prefix}'}})
+            LOGGER.info(f"Cleared media and post data for {len(titles_to_delete)} titles from channel {channel_id}.")
 
-    # --- EXISTING METHODS ---
     @classmethod
     async def set_status_message(cls, chat_id, message_id):
         if cls.task_collection is None: return
@@ -130,7 +117,6 @@ class MongoDB:
 
     @classmethod
     async def start_scan(cls, scan_id, channel_id, user_id, total_messages, chat_title, operation):
-        """Creates or overwrites a scan document to prevent duplicate key errors."""
         if cls.task_collection is None: return
         scan_document = {
             '_id': scan_id, 'type': 'active_scan', 'operation': operation,
@@ -145,7 +131,6 @@ class MongoDB:
     
     @classmethod
     async def update_scan_total(cls, scan_id, total_messages):
-        """Updates the total message count for an active scan."""
         if cls.task_collection is None: return
         await cls.task_collection.update_one(
             {'_id': scan_id},
@@ -200,21 +185,28 @@ class MongoDB:
         if parsed_data['type'] == 'series':
             season = parsed_data.get('season')
             episode = parsed_data.get('episode')
-            quality_key = f"{parsed_data['quality']} {parsed_data['codec']} ({parsed_data['encoder']})"
-            
+            quality = parsed_data.get('quality', 'Unknown')
+            codec = parsed_data.get('codec', 'Unknown')
+            encoder = parsed_data.get('encoder', 'Unknown')
+
+            # The key for grouping is now encoder-agnostic
+            quality_key = f"{quality} {codec}"
+
             update_query = {
                 '$inc': {
                     f'seasons.{season}.qualities.{quality_key}.size': file_size,
                     'total_size': file_size
                 },
                 '$addToSet': {
-                    f'seasons.{season}.qualities.{quality_key}.episodes': episode,
+                    # Store episodes in a sub-document keyed by the encoder
+                    f'seasons.{season}.qualities.{quality_key}.episodes_by_encoder.{encoder}': episode,
                     f'seasons.{season}.episodes': episode,
                 }
             }
             await cls.media_collection.update_one({'_id': title}, update_query, upsert=True)
 
         elif parsed_data['type'] == 'movie':
+            # Movie logic remains the same, as they are not grouped by encoder
             version_data = {
                 'title': parsed_data['title'],
                 'year': parsed_data['year'],
