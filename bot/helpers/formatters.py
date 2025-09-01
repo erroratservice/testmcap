@@ -1,13 +1,11 @@
 """
-Formatting helpers to generate the text for index posts with a clean, professional format.
+Formatting helpers to generate a clean, minimalist index post.
 """
 from datetime import datetime
 
 def format_series_post(title, data, total_episodes_map):
-    """Formats the final text for a TV series post."""
-    text = f"**{title}**\n"
-    text += f"Status: {'Complete' if data.get('is_complete', False) else 'Incomplete'} Collection\n"
-    text += f"Last Updated: {datetime.now().strftime('%b %d, %Y %I:%M %p IST')}\n\n"
+    """Formats the final text for a TV series post with a clean, minimalist style."""
+    text = f"**{title}**\n\n"
     
     if 'seasons' in data:
         for season_num_str in sorted(data['seasons'].keys(), key=int):
@@ -24,18 +22,14 @@ def format_series_post(title, data, total_episodes_map):
                 ep_list = sorted(quality_data.get('episodes', []))
                 ep_range = get_episode_range(ep_list)
                 
-                size_gb = quality_data.get('size', 0) / (1024**3)
-                
                 quality_parts = quality_key.split()
-                quality_val = quality_parts[0]
-                codec_val = quality_parts[1]
-                encoder_val = quality_parts[2].strip('()') if len(quality_parts) > 2 else 'Unknown'
+                quality_line = f"**{quality_parts[0]} {quality_parts[1]}**"
+                if len(quality_parts) > 2 and quality_parts[2] != '(Unknown)':
+                    quality_line += f" {quality_parts[2]}"
 
-                quality_line = f"**{quality_val} {codec_val}**"
-                if encoder_val != 'Unknown':
-                    quality_line += f" ({encoder_val})"
-
-                text += f"{prefix} {quality_line}: {ep_range} ({size_gb:.1f}GB)\n"
+                text += f"{prefix} {quality_line}: {ep_range}\n"
+    
+    text += f"\nLast Updated: {datetime.now().strftime('%b %d, %Y %I:%M %p IST')}"
     
     return text
 
