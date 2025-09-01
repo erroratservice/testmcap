@@ -14,7 +14,7 @@ from bot.modules.indexfiles import indexfiles_handler
 from bot.modules.status import status_handler
 from bot.modules.settings import settings_handler, set_index_channel_callback, receive_channel_id_handler
 from bot.modules.help import help_handler
-from bot.core.tasks import ACTIVE_TASKS, USER_STATES # Import from the new location
+from bot.core.tasks import ACTIVE_TASKS, USER_STATES
 
 LOGGER = logging.getLogger(__name__)
 
@@ -57,9 +57,12 @@ def register_handlers():
     """Register all command and callback handlers with Pyrofork"""
     bot = TgClient.bot
     
-    # --- State-based filter for conversation ---
+    # --- MODIFIED: Added a safety check to the filter ---
     async def awaiting_channel_id_filter(_, __, message):
-        return USER_STATES.get(message.from_user.id) == "awaiting_index_channel"
+        # Ensure the message is from a user before checking their state
+        if message.from_user:
+            return USER_STATES.get(message.from_user.id) == "awaiting_index_channel"
+        return False
 
     # Command Handlers
     command_handlers = [
@@ -69,8 +72,8 @@ def register_handlers():
         MessageHandler(status_handler, filters.command("status") & AuthFilters.authorized),
         MessageHandler(settings_handler, filters.command("settings") & AuthFilters.authorized),
         MessageHandler(help_handler, filters.command("help") & AuthFilters.authorized),
-        # New handler for receiving the channel ID
-        MessageHandler(receive_channel_id_handler, filters.create(awaiting_channel_id_filter) & AuthFilters.authorized)
+        # This handler will now only be triggered for messages from users in the correct state
+        MessageHandler(receive_channel_id_handler, filters.create(awaiting_channel_id_filter) & AuthFilters.authorized & filters.private)
     ]
     
     for handler in command_handlers:
@@ -79,7 +82,6 @@ def register_handlers():
     # Callback Query Handlers
     callback_handlers = [
         CallbackQueryHandler(cancel_task_callback, filters.regex("^cancel_")),
-        # New handler for the settings button
         CallbackQueryHandler(set_index_channel_callback, filters.regex("^set_index_channel$")),
     ]
 
