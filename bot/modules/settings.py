@@ -6,7 +6,7 @@ import logging
 from bot.core.config import Config
 from bot.helpers.message_utils import send_message, edit_message
 from bot.helpers.keyboard_utils import build_settings_keyboard
-from bot.core.handlers import user_states # Import the state tracker
+from bot.core.tasks import USER_STATES # Import from the new location
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ async def set_index_channel_callback(client, callback_query):
     user_id = callback_query.from_user.id
     
     # Set the user's state to expect the next message to be the channel ID
-    user_states[user_id] = "awaiting_index_channel"
+    USER_STATES[user_id] = "awaiting_index_channel"
     
     await callback_query.answer("Please send the new Index Channel ID.", show_alert=True)
     await edit_message(callback_query.message, 
@@ -64,5 +64,5 @@ async def receive_channel_id_handler(client, message):
         await send_message(message, "❌ An unexpected error occurred. Please try again.")
     finally:
         # Clean up the user's state
-        if user_id in user_states:
-            del user_states[user_id]
+        if user_id in USER_STATES:
+            del USER_STATES[user_id]
