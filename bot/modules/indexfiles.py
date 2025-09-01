@@ -101,7 +101,8 @@ async def create_channel_index(channel_id, message, scan_id):
                     total_size = sum(part.document.file_size for part in msg_group if part.document)
                     parsed['file_size'] = total_size
                     parsed['msg_id'] = first_msg.id
-                    media_map[parsed['title']].append(parsed)
+                    collection_title = parsed['title'] if parsed['type'] == 'series' else "Movie Collection"
+                    media_map[collection_title].append(parsed)
                 else:
                     unparsable_count += 1
                     LOGGER.warning(f"Could not parse filename: {media.file_name}")
@@ -150,7 +151,6 @@ async def update_or_create_post(title, channel_id):
         
         if not media_data: return
 
-        # --- MODIFIED: Choose the correct formatter based on the data type ---
         if 'seasons' in media_data:
             is_complete = True
             if TOTAL_EPISODES_MAP.get(title):
@@ -163,7 +163,7 @@ async def update_or_create_post(title, channel_id):
         elif 'versions' in media_data:
              post_text = format_movie_post(title, media_data)
         else:
-            return # Don't post if the data is not in a recognized format
+            return
 
         if len(post_text) > 4096:
             post_text = post_text[:4090] + "\n..."
