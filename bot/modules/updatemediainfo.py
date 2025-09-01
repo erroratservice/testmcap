@@ -1,5 +1,5 @@
 """
-High-performance, concurrent MediaInfo processing module with enhanced error logging.
+High-performance, concurrent MediaInfo processing module with increased download timeout.
 """
 
 import asyncio
@@ -19,10 +19,12 @@ from bot.core.tasks import ACTIVE_TASKS
 LOGGER = logging.getLogger(__name__)
 
 # Configuration
-CHUNK_STEPS = [5] # Optimized to one chunk attempt
+CHUNK_STEPS = [5]
 FULL_DOWNLOAD_LIMIT = 200 * 1024 * 1024
 MEDIAINFO_TIMEOUT = 30
 FFPROBE_TIMEOUT = 60
+# --- MODIFIED: Increased download timeout ---
+DOWNLOAD_TIMEOUT = 1800  # 30 minutes
 
 async def updatemediainfo_handler(client, message):
     """Handler that initiates a concurrent scan."""
@@ -210,7 +212,7 @@ async def process_message_full_download_only(client, message):
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
         temp_file = os.path.join(temp_dir, f"temp_{message.id}.tmp")
 
-        await asyncio.wait_for(message.download(temp_file), timeout=300.0)
+        await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT)
         
         metadata = await extract_mediainfo_from_file(temp_file)
         video_info, audio_tracks = None, []
@@ -270,7 +272,7 @@ async def process_message_enhanced(client, message):
 
         if file_size <= FULL_DOWNLOAD_LIMIT:
             try:
-                await asyncio.wait_for(message.download(temp_file), timeout=300.0)
+                await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT)
                 
                 metadata = await extract_mediainfo_from_file(temp_file)
                 video_info, audio_tracks = None, []
