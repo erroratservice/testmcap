@@ -24,22 +24,26 @@ def format_series_post(title, data, total_episodes_map):
                 if not episodes_by_encoder:
                     continue
 
-                encoder_strings = []
-                # Sort encoders so that 'Unknown' always appears last, making the output consistent
-                sorted_encoders = sorted(episodes_by_encoder.keys(), key=lambda x: (x == 'Unknown', x))
+                all_details = []
+                
+                # Process known encoders first, sorted alphabetically
+                known_encoders = {enc: eps for enc, eps in episodes_by_encoder.items() if enc != 'Unknown'}
+                for encoder, ep_list in sorted(known_encoders.items()):
+                    ep_range = get_episode_range(sorted(ep_list))
+                    if ep_range:
+                        all_details.append(f"({encoder}): {ep_range}")
 
-                for encoder in sorted_encoders:
-                    ep_list = sorted(episodes_by_encoder.get(encoder, []))
-                    ep_range = get_episode_range(ep_list)
+                # Process the 'Unknown' encoder group if it exists, adding it to the end
+                if 'Unknown' in episodes_by_encoder:
+                    ep_list = episodes_by_encoder['Unknown']
+                    ep_range = get_episode_range(sorted(ep_list))
+                    if ep_range:
+                        all_details.append(ep_range)
+
+                if not all_details:
+                    continue
                     
-                    # Add the (ENCODER): prefix only if the encoder is known
-                    if encoder != 'Unknown':
-                        encoder_strings.append(f"({encoder}): {ep_range}")
-                    else:
-                        encoder_strings.append(ep_range)
-
-                # Join the different encoder groups with a separator
-                full_details_line = " | ".join(encoder_strings)
+                full_details_line = " | ".join(all_details)
                 text += f"{prefix} **{quality_key}**: {full_details_line}\n"
     
     text += f"\nLast Updated: {datetime.now().strftime('%b %d, %Y %I:%M %p IST')}"
