@@ -1,5 +1,5 @@
 """
-High-performance, concurrent MediaInfo processing module.
+High-performance, concurrent MediaInfo processing module with enhanced error logging.
 """
 
 import asyncio
@@ -11,7 +11,7 @@ from aiofiles.os import remove as aioremove
 from pyrogram.errors import MessageNotModified
 from bot.core.client import TgClient
 from bot.core.config import Config
-from bot.helpers.message_utils import send_message, send_reply, edit_message
+from bot.helpers.message_utils import send_message, send_reply
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
@@ -57,44 +57,13 @@ async def updatemediainfo_handler(client, message):
         LOGGER.error(f"💥 Handler error in updatemediainfo: {e}")
         await send_message(message, f"❌ **Error:** {e}")
 
+
 async def progress_updater(scan_id, stats, stop_event):
     """A sub-task that updates the database every 10 seconds."""
     while not stop_event.is_set():
         finished_count = stats["processed"] + stats["errors"] + stats["skipped"]
         await MongoDB.update_scan_progress(scan_id, finished_count)
         await asyncio.sleep(10)
-
-async def initial_status_update():
-    """Performs a one-time immediate update to the status message."""
-    status_message_doc = await MongoDB.get_status_message()
-    if status_message_doc:
-        chat_id = status_message_doc.get('chat_id')
-        message_id = status_message_doc.get('message_id')
-        
-        active_scans = await MongoDB.get_active_scans()
-        text = "📊 **Live Task Status**\n\n"
-        if not active_scans:
-             text += "⏳ Initializing task, please wait..."
-        else:
-            for i, scan in enumerate(active_scans, 1):
-                op = scan.get('operation', 'Processing').title()
-                ch = scan.get('chat_title', 'Unknown')
-                cur = scan.get('processed_messages', 0)
-                tot = scan.get('total_messages', 0)
-                prog = (cur / tot * 100) if tot > 0 else 0
-                bar = f"[{'█' * int(prog / 10)}{'░' * (10 - int(prog / 10))}] {prog:.1f}%"
-                
-                total_text = tot if tot > 0 else "Fetching..."
-                text += f"**{i}. {op}:** `{ch}`\n   `{bar}`\n   `Processed: {cur} / {total_text}`\n\n"
-
-        class DummyMessage:
-            def __init__(self, cid, mid):
-                self.chat = type('Chat', (), {'id': cid})()
-                self.id = mid
-        try:
-            await edit_message(DummyMessage(chat_id, message_id), text)
-        except Exception:
-            pass
 
 async def process_channel_concurrently(channel_id, message, scan_id):
     """Processes a channel by running multiple file tasks at the same time."""
@@ -104,14 +73,11 @@ async def process_channel_concurrently(channel_id, message, scan_id):
     try:
         chat = await TgClient.user.get_chat(channel_id)
         
-        await MongoDB.start_scan(scan_id, channel_id, user_id, 0, chat.title, "MediaInfo Scan")
-        await initial_status_update()
-        
         history_generator = TgClient.user.get_chat_history(chat_id=channel_id)
         messages = [msg async for msg in history_generator]
         total_messages = len(messages)
         
-        await MongoDB.update_scan_total(scan_id, total_messages)
+        await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "MediaInfo Scan")
 
         stats = {"processed": 0, "errors": 0, "skipped": 0}
         failed_ids_internal = []
@@ -126,6 +92,7 @@ async def process_channel_concurrently(channel_id, message, scan_id):
                 if not await has_media(msg) or await already_has_mediainfo(msg):
                     stats["skipped"] += 1
                     return
+
                 LOGGER.info(f"🎯 Processing media message {msg.id} in {chat.title}")
                 try:
                     success, _ = await process_message_enhanced(TgClient.user, msg)
@@ -141,6 +108,7 @@ async def process_channel_concurrently(channel_id, message, scan_id):
 
         tasks = [worker(msg) for msg in reversed(messages)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
+
         for result in results:
             if isinstance(result, Exception):
                 LOGGER.error(f"A task failed with an exception: {result}", exc_info=True)
@@ -170,6 +138,7 @@ async def process_channel_concurrently(channel_id, message, scan_id):
         ACTIVE_TASKS.pop(scan_id, None)
 
 async def force_process_channel_concurrently(channel_id, message, scan_id):
+    """Concurrently processes only the failed message IDs stored in the database."""
     user_id = message.from_user.id
     chat = None
     
@@ -177,15 +146,10 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
         failed_ids = await MongoDB.get_failed_ids(channel_id)
         if not failed_ids:
             await send_reply(message, f"✅ No failed IDs found in the database for this channel.")
-            status_doc = await MongoDB.get_status_message()
-            if status_doc and not await MongoDB.get_active_scans():
-                await TgClient.bot.delete_messages(status_doc['chat_id'], status_doc['message_id'])
-                await MongoDB.delete_status_message_tracker()
             return
         
         chat = await TgClient.user.get_chat(channel_id)
         await MongoDB.start_scan(scan_id, channel_id, user_id, len(failed_ids), chat.title, "Force Scan")
-        await initial_status_update()
         
         stats = {"processed": 0, "errors": 0, "skipped": 0}
         
@@ -232,6 +196,44 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
     finally:
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)
+
+
+async def process_message_full_download_only(client, message):
+    """A simplified processor that only attempts a full download with ffprobe fallback."""
+    temp_file = None
+    try:
+        media = message.video or message.audio or message.document
+        if not media: return False, "no_media"
+
+        filename = str(media.file_name) if media.file_name else f"media_{message.id}"
+        temp_dir = "temp_mediainfo"
+        if not os.path.exists(temp_dir): os.makedirs(temp_dir)
+        temp_file = os.path.join(temp_dir, f"temp_{message.id}.tmp")
+
+        await asyncio.wait_for(message.download(temp_file), timeout=300.0)
+        
+        metadata = await extract_mediainfo_from_file(temp_file)
+        video_info, audio_tracks = None, []
+        if metadata:
+            video_info, audio_tracks = parse_essential_metadata(metadata)
+        
+        if not video_info and not audio_tracks:
+            LOGGER.warning(f"MediaInfo failed for {filename}. Trying ffprobe as a fallback.")
+            ffprobe_metadata = await extract_metadata_with_ffprobe(temp_file)
+            if ffprobe_metadata:
+                video_info, audio_tracks = parse_ffprobe_metadata(ffprobe_metadata)
+        
+        if video_info or audio_tracks:
+            if await update_caption_clean(message, video_info, audio_tracks):
+                await cleanup_files([temp_file])
+                return True, "full"
+        
+        return False, "failed"
+    except Exception as e:
+        LOGGER.error(f"Full download processing error for message {message.id}: {e}")
+        return False, "error"
+    finally:
+        await cleanup_files([temp_file])
 
 async def process_message_enhanced(client, message):
     """Process message with an optimized chunk strategy and ffprobe fallback."""
