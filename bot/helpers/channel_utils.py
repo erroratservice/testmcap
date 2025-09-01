@@ -1,5 +1,5 @@
 """
-Utilities for handling channel message history and caching.
+Utilities for handling channel message history and caching with a streaming approach.
 """
 import logging
 import asyncio
@@ -8,58 +8,55 @@ from bot.database.mongodb import MongoDB
 
 LOGGER = logging.getLogger(__name__)
 
-async def get_history_for_processing(channel_id, force=False):
+async def stream_history_for_processing(channel_id, force=False):
     """
-    Fetches message history for a channel, utilizing a cache of message IDs.
-    On the first run, it fetches all messages. On subsequent runs, it only fetches new ones.
-    
+    Asynchronously yields batches of new messages from a channel's history.
+    This combines a streaming approach with database caching to process only new messages
+    since the last scan, while avoiding high memory usage and rate limits.
+
     :param channel_id: The ID of the target channel.
     :param force: If True, ignores the cache and re-processes all messages.
-    :return: A list of message objects to be processed.
+    :return: An asynchronous generator that yields lists of message objects.
     """
-    LOGGER.info(f"Fetching history for channel {channel_id}. Force rescan: {force}")
-    
+    LOGGER.info(f"Streaming history for channel {channel_id}. Force rescan: {force}")
+
     if force:
         await MongoDB.clear_cached_message_ids(channel_id)
         LOGGER.info(f"Cleared message ID cache for channel {channel_id} due to force rescan.")
 
-    # Fetch all message IDs currently in the channel from Telegram
-    try:
-        all_ids_in_channel = [msg.id async for msg in TgClient.user.get_chat_history(chat_id=channel_id)]
-        if not all_ids_in_channel:
-            LOGGER.warning(f"No messages found in channel {channel_id}.")
-            return []
-    except Exception as e:
-        LOGGER.error(f"Could not get chat history for {channel_id}: {e}")
-        return []
-
-    # Determine which message IDs need to be processed
-    if force:
-        ids_to_process = all_ids_in_channel
-    else:
-        cached_ids = await MongoDB.get_cached_message_ids(channel_id)
-        ids_to_process = list(set(all_ids_in_channel) - set(cached_ids))
-
-    if not ids_to_process:
-        LOGGER.info(f"No new messages to process for channel {channel_id}.")
-        return []
-
-    LOGGER.info(f"Found {len(ids_to_process)} messages to process for channel {channel_id}.")
-
-    # Fetch full message objects for the required IDs in batches of 100
-    messages_to_process = []
-    for i in range(0, len(ids_to_process), 100):
-        batch_ids = ids_to_process[i:i+100]
-        try:
-            # The get_messages method can handle a list of IDs
-            messages = await TgClient.user.get_messages(chat_id=channel_id, message_ids=batch_ids)
-            messages_to_process.extend(messages)
-            await asyncio.sleep(1) # Sleep to avoid hitting API limits
-        except Exception as e:
-            LOGGER.error(f"Could not get a batch of messages for {channel_id}: {e}")
-
-    # Update the cache with the newly processed message IDs
-    if ids_to_process:
-        await MongoDB.update_cached_message_ids(channel_id, ids_to_process)
+    cached_ids = set(await MongoDB.get_cached_message_ids(channel_id))
     
-    return messages_to_process
+    batch = []
+    ids_to_cache = []
+    
+    try:
+        total_messages_processed = 0
+        async for message in TgClient.user.get_chat_history(chat_id=channel_id):
+            total_messages_processed += 1
+            if not force and message.id in cached_ids:
+                continue
+
+            batch.append(message)
+            ids_to_cache.append(message.id)
+
+            # Yield a batch when it reaches 100 messages
+            if len(batch) == 100:
+                LOGGER.info(f"Yielding batch of {len(batch)} messages for channel {channel_id}.")
+                yield batch
+                await MongoDB.update_cached_message_ids(channel_id, ids_to_cache)
+                batch, ids_to_cache = [], []
+                await asyncio.sleep(2) # A small sleep between batches to respect rate limits
+
+        # Yield any remaining messages in the last batch
+        if batch:
+            LOGGER.info(f"Yielding final batch of {len(batch)} messages for channel {channel_id}.")
+            yield batch
+            await MongoDB.update_cached_message_ids(channel_id, ids_to_cache)
+            
+        LOGGER.info(f"Finished streaming history for channel {channel_id}. Scanned {total_messages_processed} total messages.")
+
+    except Exception as e:
+        LOGGER.error(f"Could not stream chat history for {channel_id}: {e}", exc_info=True)
+        # Still yield any messages collected before an error
+        if batch:
+            yield batch
