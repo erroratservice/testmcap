@@ -123,7 +123,7 @@ async def main():
         asyncio.create_task(update_status_periodically())
         LOGGER.info("Started background status updater.")
         
-        LOGGER.info("Media Indexing Bot started successfully!")
+        LOGGER.info("Media Manager Bot started successfully!")
         
         await asyncio.Future()
         

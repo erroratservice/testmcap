@@ -25,7 +25,7 @@ class TgClient:
         """Initialize both bot and user clients"""
         try:
             cls.bot = Client(
-                name="MediaIndexBot",
+                name="MediaManagerBot",
                 api_id=Config.TELEGRAM_API,
                 api_hash=Config.TELEGRAM_HASH,
                 bot_token=Config.BOT_TOKEN,
@@ -33,7 +33,7 @@ class TgClient:
             )
             
             cls.user = Client(
-                name="MediaIndexUser", 
+                name="MediaManagerUser", 
                 api_id=Config.TELEGRAM_API,
                 api_hash=Config.TELEGRAM_HASH,
                 session_string=Config.USER_SESSION_STRING,
