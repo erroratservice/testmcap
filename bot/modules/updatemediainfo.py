@@ -15,7 +15,7 @@ from bot.helpers.message_utils import send_message, send_reply
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
-from bot.helpers.channel_utils import get_history_for_processing
+from bot.helpers.channel_utils import stream_history_for_processing # Corrected import
 
 LOGGER = logging.getLogger(__name__)
 
@@ -69,31 +69,22 @@ async def progress_updater(scan_id, stats, stop_event):
         await asyncio.sleep(10)
 
 async def process_channel_concurrently(channel_id, message, scan_id, force=False):
-    """Processes a channel by running multiple file tasks at the same time."""
+    """Processes a channel by streaming messages and running file tasks concurrently."""
     user_id = message.from_user.id
     chat = None
     
     try:
         chat = await TgClient.user.get_chat(channel_id)
         
-        messages = await get_history_for_processing(channel_id, force=force)
-        if not messages:
-            await send_reply(message, f"✅ No new messages to process in **{chat.title}**.")
-            ACTIVE_TASKS.pop(scan_id, None)
-            return
-            
-        total_messages = len(messages)
-        
+        # Get total message count for the status updater
+        total_messages = await TgClient.user.get_chat_history_count(chat_id=channel_id)
         await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "MediaInfo Scan")
 
         stats = {"processed": 0, "errors": 0, "skipped": 0}
         failed_ids_internal = []
         
         semaphore = asyncio.Semaphore(Config.MAX_CONCURRENT_TASKS)
-        stop_event = asyncio.Event()
-
-        updater_task = asyncio.create_task(progress_updater(scan_id, stats, stop_event))
-
+        
         async def worker(msg):
             async with semaphore:
                 if not await has_media(msg) or await already_has_mediainfo(msg):
@@ -113,16 +104,22 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
                     failed_ids_internal.append(msg.id)
                     raise
 
-        tasks = [worker(msg) for msg in reversed(messages)]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        processed_count = 0
+        # Loop through the async generator to get messages in batches
+        async for message_batch in stream_history_for_processing(channel_id, force=force):
+            if not message_batch:
+                continue
 
-        for result in results:
-            if isinstance(result, Exception):
-                LOGGER.error(f"A task failed with an exception: {result}", exc_info=True)
+            # Create concurrent tasks for the current batch
+            tasks = [worker(msg) for msg in reversed(message_batch)]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        stop_event.set()
-        await updater_task
-        await MongoDB.update_scan_progress(scan_id, total_messages)
+            for result in results:
+                if isinstance(result, Exception):
+                    LOGGER.error(f"A task failed with an exception in a batch: {result}", exc_info=True)
+            
+            processed_count += len(message_batch)
+            await MongoDB.update_scan_progress(scan_id, processed_count)
 
         if failed_ids_internal:
             await MongoDB.save_failed_ids(channel_id, failed_ids_internal)
@@ -144,6 +141,7 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)
 
+# --- The rest of the file (from force_process_channel_concurrently onwards) remains unchanged ---
 async def force_process_channel_concurrently(channel_id, message, scan_id):
     """Concurrently processes only the failed message IDs stored in the database."""
     user_id = message.from_user.id
@@ -447,10 +445,7 @@ async def already_has_mediainfo(msg):
 
 async def get_target_channels(message):
     """Correctly extracts the channel ID while ignoring known flags."""
-    # Define known flags to ignore
     known_flags = ['-rescan', '-f']
-    
-    # Find the argument that is not a known flag
     args = [arg for arg in message.command[1:] if arg not in known_flags]
     
     if args:
