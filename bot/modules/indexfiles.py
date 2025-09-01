@@ -18,10 +18,9 @@ LOGGER = logging.getLogger(__name__)
 
 # Mock data for total episodes per season
 TOTAL_EPISODES_MAP = {
-    "Battlestar Galactica (2003)": {0: 10},
-    "Dr Katz, Professional Therapist": {1: 6, 2: 9},
-    "Knight Rider": {1: 21, 2: 21, 3: 22, 4: 21},
-    "Naruto": {1: 52, 2: 53, 3: 57, 4: 57}
+    "Breaking Bad": {1: 7, 2: 13, 3: 13, 4: 13, 5: 16},
+    "Game of Thrones": {1: 10, 2: 10, 3: 10, 4: 10, 5: 10, 6: 10, 7: 7, 8: 6},
+    "Byker Grove": {5: 20}
 }
 BATCH_SIZE = 100
 
@@ -69,23 +68,22 @@ async def create_channel_index(channel_id, message, scan_id):
         message_groups = defaultdict(list)
         unparsable_count = 0
         skipped_count = 0
-
-        # Create a dictionary to hold the first message for each base name
+        
         base_name_map = {}
         for msg in messages:
             media = msg.video or msg.document
             if media and hasattr(media, 'file_name') and media.file_name:
-                base_name, is_split = parse_media_info(media.file_name).get('base_name', (media.file_name, False)) if parse_media_info(media.file_name) else (media.file_name, False)
-                if is_split:
+                parsed_temp = parse_media_info(media.file_name)
+                if parsed_temp and parsed_temp.get('is_split'):
+                    base_name = parsed_temp['base_name']
                     if base_name not in base_name_map:
                         base_name_map[base_name] = []
                     base_name_map[base_name].append(msg)
                 else:
-                    message_groups[msg.id] = [msg] # Non-split files
+                    message_groups[msg.id] = [msg]
             else:
                 skipped_count += 1
 
-        # Add the grouped split files to the main message_groups dictionary
         for base_name, parts in base_name_map.items():
             first_message = min(parts, key=lambda x: x.id)
             message_groups[first_message.id] = parts
