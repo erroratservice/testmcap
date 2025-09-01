@@ -59,20 +59,16 @@ class MongoDB:
         if cls.db is None: return
         
         post_prefix = f"post_{channel_id}_"
-        # Find all post tracker documents for the channel
         post_docs = await cls.task_collection.find({'_id': {'$regex': f'^{post_prefix}'}}).to_list(length=None)
         
         if not post_docs:
             LOGGER.info(f"No existing post data to clear for channel {channel_id}.")
             return
 
-        # Extract the titles from these documents
         titles_to_delete = [doc['title'] for doc in post_docs]
         
         if titles_to_delete:
-            # Delete the media data documents matching these titles
             await cls.media_collection.delete_many({'_id': {'$in': titles_to_delete}})
-            # Delete the post tracker documents themselves
             await cls.task_collection.delete_many({'_id': {'$regex': f'^{post_prefix}'}})
             LOGGER.info(f"Cleared media and post data for {len(titles_to_delete)} titles from channel {channel_id}.")
 
@@ -189,7 +185,6 @@ class MongoDB:
             codec = parsed_data.get('codec', 'Unknown')
             encoder = parsed_data.get('encoder', 'Unknown')
 
-            # The key for grouping is now encoder-agnostic
             quality_key = f"{quality} {codec}"
 
             update_query = {
@@ -198,7 +193,6 @@ class MongoDB:
                     'total_size': file_size
                 },
                 '$addToSet': {
-                    # Store episodes in a sub-document keyed by the encoder
                     f'seasons.{season}.qualities.{quality_key}.episodes_by_encoder.{encoder}': episode,
                     f'seasons.{season}.episodes': episode,
                 }
@@ -206,7 +200,6 @@ class MongoDB:
             await cls.media_collection.update_one({'_id': title}, update_query, upsert=True)
 
         elif parsed_data['type'] == 'movie':
-            # Movie logic remains the same, as they are not grouped by encoder
             version_data = {
                 'title': parsed_data['title'],
                 'year': parsed_data['year'],
