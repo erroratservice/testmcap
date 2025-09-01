@@ -70,6 +70,7 @@ async def create_channel_index(channel_id, message, scan_id):
         for msg in messages:
             media = msg.video or msg.document
             if media and hasattr(media, 'file_name') and media.file_name:
+                # --- MODIFIED: Safely handle None from the parser ---
                 parsed_temp = parse_media_info(media.file_name)
                 if parsed_temp and parsed_temp.get('is_split'):
                     base_name = parsed_temp['base_name']
@@ -139,7 +140,14 @@ async def process_batch(media_map, channel_id):
     """Aggregates and updates posts for a batch of collected media."""
     for title, items in media_map.items():
         for item in items:
-            await MongoDB.add_media_entry(item, item['file_size'], item['msg_id'])
+            # --- MODIFIED: Correctly handle both series and movies to prevent KeyError ---
+            if item.get('type') == 'series':
+                for episode_num in item.get('episodes', []):
+                    item_copy = item.copy()
+                    item_copy['episode'] = episode_num
+                    await MongoDB.add_media_entry(item_copy, item['file_size'], item['msg_id'])
+            elif item.get('type') == 'movie':
+                await MongoDB.add_media_entry(item, item['file_size'], item['msg_id'])
         
         await update_or_create_post(title, channel_id)
 
@@ -185,6 +193,7 @@ async def update_or_create_post(title, channel_id):
 
     except Exception as e:
         LOGGER.error(f"Failed to update post for '{title}': {e}")
+
 
 async def get_target_channels(message):
     if message.reply_to_message and message.reply_to_message.document:
