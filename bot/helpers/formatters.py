@@ -19,7 +19,6 @@ def format_series_post(title, data, total_episodes_map):
             for i, (quality_key, quality_data) in enumerate(qualities.items()):
                 prefix = "└─" if i == len(qualities) - 1 else "├─"
                 episodes_by_encoder = quality_data.get('episodes_by_encoder', {})
-                LOGGER.debug(f"FORMATTER: For title '{title}' quality '{quality_key}', found encoders in DB: {list(episodes_by_encoder.keys())}")
                 if not episodes_by_encoder: continue
                 details_parts = []
                 known_encoder_names = [enc for enc in episodes_by_encoder.keys() if enc != 'Unknown']
