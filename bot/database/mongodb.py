@@ -32,6 +32,7 @@ class MongoDB:
             cls.client.close()
             LOGGER.info("✅ MongoDB connection closed.")
 
+    # --- Live Status & Task Management ---
     @classmethod
     async def set_status_message(cls, chat_id, message_id):
         if cls.task_collection is None: return
@@ -84,8 +85,34 @@ class MongoDB:
         if cls.task_collection is None: return
         await cls.task_collection.delete_many({'type': 'active_scan'})
 
+    # --- RESTORED: Failed IDs Management ---
+    @classmethod
+    async def save_failed_ids(cls, channel_id, failed_ids):
+        """Save failed IDs as a document in the task collection."""
+        if cls.task_collection is None: return
+        await cls.task_collection.update_one(
+            {'_id': f"failed_{channel_id}", 'type': 'failed_job'},
+            {'$set': {'channel_id': channel_id, 'failed_ids': failed_ids}},
+            upsert=True
+        )
+
+    @classmethod
+    async def get_failed_ids(cls, channel_id):
+        """Retrieve failed IDs from the task collection."""
+        if cls.task_collection is None: return []
+        document = await cls.task_collection.find_one({'_id': f"failed_{channel_id}", 'type': 'failed_job'})
+        return document.get('failed_ids', []) if document else []
+
+    @classmethod
+    async def clear_failed_ids(cls, channel_id):
+        """Clear the failed IDs document from the task collection."""
+        if cls.task_collection is None: return
+        await cls.task_collection.delete_one({'_id': f"failed_{channel_id}", 'type': 'failed_job'})
+
+    # --- Advanced Indexing ---
     @classmethod
     async def get_or_create_post(cls, title, channel_id):
+        """Finds an existing post for a title or creates a placeholder."""
         if cls.task_collection is None: return None
         doc_id = f"post_{channel_id}_{title.lower().replace(' ', '_')}"
         post = await cls.task_collection.find_one({'_id': doc_id})
@@ -96,11 +123,13 @@ class MongoDB:
 
     @classmethod
     async def update_post_message_id(cls, post_id, message_id):
+        """Updates the message_id for a given post."""
         if cls.task_collection is None: return
         await cls.task_collection.update_one({'_id': post_id}, {'$set': {'message_id': message_id}})
 
     @classmethod
     async def add_media_entry(cls, parsed_data, file_size, msg_id):
+        """Adds or updates a media entry in the database."""
         if cls.media_collection is None: return
         
         title = parsed_data['title']
@@ -127,5 +156,6 @@ class MongoDB:
 
     @classmethod
     async def get_media_data(cls, title):
+        """Retrieves all aggregated data for a given title."""
         if cls.media_collection is None: return None
         return await cls.media_collection.find_one({'_id': title})
