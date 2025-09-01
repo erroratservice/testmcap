@@ -1,5 +1,5 @@
 """
-Advanced index files command with a batched processing system for split files and episode ranges.
+Advanced index files command with media type filtering.
 """
 import logging
 import asyncio
@@ -15,6 +15,11 @@ from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
 
 LOGGER = logging.getLogger(__name__)
+
+# --- NEW: List of valid media file extensions to process ---
+VALID_MEDIA_EXTENSIONS = {
+    '.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v'
+}
 
 # Mock data for total episodes per season
 TOTAL_EPISODES_MAP = {}
@@ -70,6 +75,12 @@ async def create_channel_index(channel_id, message, scan_id):
         for msg in messages:
             media = msg.video or msg.document
             if media and hasattr(media, 'file_name') and media.file_name:
+                # --- MODIFIED: Check if the file is a valid media type ---
+                file_ext = os.path.splitext(media.file_name)[1].lower()
+                if file_ext not in VALID_MEDIA_EXTENSIONS:
+                    skipped_count += 1
+                    continue # Skip this file
+                
                 parsed_temp = parse_media_info(media.file_name)
                 if parsed_temp and parsed_temp.get('is_split'):
                     base_name = parsed_temp['base_name']
@@ -138,17 +149,12 @@ async def process_batch(media_map, channel_id):
     """Aggregates and updates posts for a batch of collected media."""
     for title, items in media_map.items():
         for item in items:
-            # --- MODIFIED: Handle movies and series separately ---
             if item.get('type') == 'series':
                 for episode_num in item.get('episodes', []):
                     item_copy = item.copy()
                     item_copy['episode'] = episode_num
                     await MongoDB.add_media_entry(item_copy, item['file_size'], item['msg_id'])
-            elif item.get('type') == 'movie':
-                # Handle movie entry (if specific logic is needed in the future)
-                pass # For now, we just need to avoid the crash
         
-        # We only create posts for series in this version
         if items and items[0].get('type') == 'series':
             await update_or_create_post(title, channel_id)
 
