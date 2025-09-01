@@ -53,6 +53,14 @@ class Config:
         cls.CMD_SUFFIX = os.getenv('CMD_SUFFIX', '')
         cls.AUTHOR_NAME = os.getenv('AUTHOR_NAME', 'Media Indexer Bot')
         cls.AUTHOR_URL = os.getenv('AUTHOR_URL', 'https://t.me/MediaIndexerBot')
+
+    @classmethod
+    def set(cls, key, value):
+        """Dynamically sets a configuration attribute."""
+        if hasattr(cls, key):
+            setattr(cls, key, value)
+            return True
+        return False
         
     @classmethod
     def validate(cls):
