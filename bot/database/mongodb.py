@@ -30,7 +30,7 @@ class MongoDB:
     
     @classmethod
     async def close(cls):
-        if cls.client:
+        if cls.client is not None:
             cls.client.close()
             LOGGER.info("✅ MongoDB connection closed.")
 
@@ -42,13 +42,13 @@ class MongoDB:
 
     @classmethod
     async def update_cached_message_ids(cls, channel_id, new_ids):
-        if cls.message_ids_cache is None: return
-        await cls.message_ids_cache.update_one({'_id': channel_id}, {'$addToSet': {'message_ids': {'$each': new_ids}}}, upsert=True)
+        if cls.message_ids_cache is not None:
+            await cls.message_ids_cache.update_one({'_id': channel_id}, {'$addToSet': {'message_ids': {'$each': new_ids}}}, upsert=True)
 
     @classmethod
     async def clear_cached_message_ids(cls, channel_id):
-        if cls.message_ids_cache is None: return
-        await cls.message_ids_cache.delete_one({'_id': channel_id})
+        if cls.message_ids_cache is not None:
+            await cls.message_ids_cache.delete_one({'_id': channel_id})
 
     @classmethod
     async def clear_media_data_for_channel(cls, channel_id):
@@ -81,55 +81,60 @@ class MongoDB:
                             'codec': parsed_data['codec'], 'encoder': parsed_data['encoder'], 'size': file_size, 'msg_id': msg_id}
             await cls.media_collection.update_one({'_id': title}, {'$addToSet': {'versions': version_data}}, upsert=True)
 
-    # The rest of the file is unchanged...
     @classmethod
     async def set_status_message(cls, chat_id, message_id):
-        if cls.task_collection: await cls.task_collection.update_one({'_id': 'status_message_tracker'}, {'$set': {'chat_id': chat_id, 'message_id': message_id}}, upsert=True)
+        if cls.task_collection is not None: await cls.task_collection.update_one({'_id': 'status_message_tracker'}, {'$set': {'chat_id': chat_id, 'message_id': message_id}}, upsert=True)
     @classmethod
     async def get_status_message(cls):
-        return await cls.task_collection.find_one({'_id': 'status_message_tracker'}) if cls.task_collection else None
+        if cls.task_collection is not None: return await cls.task_collection.find_one({'_id': 'status_message_tracker'})
+        return None
     @classmethod
     async def delete_status_message_tracker(cls):
-        if cls.task_collection: await cls.task_collection.delete_one({'_id': 'status_message_tracker'})
+        if cls.task_collection is not None: await cls.task_collection.delete_one({'_id': 'status_message_tracker'})
     @classmethod
     async def save_failed_ids(cls, channel_id, failed_ids):
-        if cls.task_collection: await cls.task_collection.update_one({'_id': f"failed_{channel_id}", 'type': 'failed_job'}, {'$set': {'channel_id': channel_id, 'failed_ids': failed_ids}}, upsert=True)
+        if cls.task_collection is not None: await cls.task_collection.update_one({'_id': f"failed_{channel_id}", 'type': 'failed_job'}, {'$set': {'channel_id': channel_id, 'failed_ids': failed_ids}}, upsert=True)
     @classmethod
     async def get_failed_ids(cls, channel_id):
-        doc = await cls.task_collection.find_one({'_id': f"failed_{channel_id}", 'type': 'failed_job'}) if cls.task_collection else None
-        return doc.get('failed_ids', []) if doc else []
+        if cls.task_collection is not None:
+            doc = await cls.task_collection.find_one({'_id': f"failed_{channel_id}", 'type': 'failed_job'})
+            return doc.get('failed_ids', []) if doc else []
+        return []
     @classmethod
     async def clear_failed_ids(cls, channel_id):
-        if cls.task_collection: await cls.task_collection.delete_one({'_id': f"failed_{channel_id}", 'type': 'failed_job'})
+        if cls.task_collection is not None: await cls.task_collection.delete_one({'_id': f"failed_{channel_id}", 'type': 'failed_job'})
     @classmethod
     async def start_scan(cls, scan_id, channel_id, user_id, total_messages, chat_title, operation):
-        if cls.task_collection: await cls.task_collection.update_one({'_id': scan_id}, {'$set': {'type': 'active_scan', 'operation': operation, 'channel_id': channel_id, 'user_id': user_id, 'total_messages': total_messages, 'processed_messages': 0, 'chat_title': chat_title}}, upsert=True)
+        if cls.task_collection is not None: await cls.task_collection.update_one({'_id': scan_id}, {'$set': {'type': 'active_scan', 'operation': operation, 'channel_id': channel_id, 'user_id': user_id, 'total_messages': total_messages, 'processed_messages': 0, 'chat_title': chat_title}}, upsert=True)
     @classmethod
     async def update_scan_total(cls, scan_id, total_messages):
-        if cls.task_collection: await cls.task_collection.update_one({'_id': scan_id}, {'$set': {'total_messages': total_messages}})
+        if cls.task_collection is not None: await cls.task_collection.update_one({'_id': scan_id}, {'$set': {'total_messages': total_messages}})
     @classmethod
     async def update_scan_progress(cls, scan_id, processed_count):
-        if cls.task_collection: await cls.task_collection.update_one({'_id': scan_id, 'type': 'active_scan'}, {'$set': {'processed_messages': processed_count}})
+        if cls.task_collection is not None: await cls.task_collection.update_one({'_id': scan_id, 'type': 'active_scan'}, {'$set': {'processed_messages': processed_count}})
     @classmethod
     async def end_scan(cls, scan_id):
-        if cls.task_collection: await cls.task_collection.delete_one({'_id': scan_id, 'type': 'active_scan'})
+        if cls.task_collection is not None: await cls.task_collection.delete_one({'_id': scan_id, 'type': 'active_scan'})
     @classmethod
     async def get_active_scans(cls):
-        return await cls.task_collection.find({'type': 'active_scan'}).to_list(length=None) if cls.task_collection else []
+        if cls.task_collection is not None: return await cls.task_collection.find({'type': 'active_scan'}).to_list(length=None)
+        return []
     @classmethod
     async def clear_all_scans(cls):
-        if cls.task_collection: await cls.task_collection.delete_many({'type': 'active_scan'})
+        if cls.task_collection is not None: await cls.task_collection.delete_many({'type': 'active_scan'})
     @classmethod
     async def get_or_create_post(cls, title, channel_id):
+        if cls.task_collection is None: return None
         doc_id = f"post_{channel_id}_{title.lower().replace(' ', '_')}"
-        post = await cls.task_collection.find_one({'_id': doc_id}) if cls.task_collection else None
-        if not post and cls.task_collection:
+        post = await cls.task_collection.find_one({'_id': doc_id})
+        if not post:
             post = {'_id': doc_id, 'title': title, 'channel_id': channel_id, 'message_id': None}
             await cls.task_collection.insert_one(post)
         return post
     @classmethod
     async def update_post_message_id(cls, post_id, message_id):
-        if cls.task_collection: await cls.task_collection.update_one({'_id': post_id}, {'$set': {'message_id': message_id}})
+        if cls.task_collection is not None: await cls.task_collection.update_one({'_id': post_id}, {'$set': {'message_id': message_id}})
     @classmethod
     async def get_media_data(cls, title):
-        return await cls.media_collection.find_one({'_id': title}) if cls.media_collection else None
+        if cls.media_collection is not None: return await cls.media_collection.find_one({'_id': title})
+        return None
