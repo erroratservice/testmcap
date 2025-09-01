@@ -130,29 +130,43 @@ class MongoDB:
 
     @classmethod
     async def add_media_entry(cls, parsed_data, file_size, msg_id):
+        """Adds or updates a media entry in the database for series or movies."""
         if cls.media_collection is None: return
         
         title = parsed_data['title']
-        season = parsed_data.get('season')
-        episode = parsed_data.get('episode')
-        quality_key = f"{parsed_data['quality']} {parsed_data['codec']} ({parsed_data['encoder']})"
         
-        update_query = {
-            '$inc': {
-                f'seasons.{season}.qualities.{quality_key}.size': file_size,
-                'total_size': file_size
-            },
-            '$addToSet': {
-                f'seasons.{season}.qualities.{quality_key}.episodes': episode,
-                f'seasons.{season}.episodes': episode,
+        if parsed_data['type'] == 'series':
+            season = parsed_data.get('season')
+            episode = parsed_data.get('episode')
+            quality_key = f"{parsed_data['quality']} {parsed_data['codec']} ({parsed_data['encoder']})"
+            
+            update_query = {
+                '$inc': {
+                    f'seasons.{season}.qualities.{quality_key}.size': file_size,
+                    'total_size': file_size
+                },
+                '$addToSet': {
+                    f'seasons.{season}.qualities.{quality_key}.episodes': episode,
+                    f'seasons.{season}.episodes': episode,
+                }
             }
-        }
-        
-        await cls.media_collection.update_one(
-            {'_id': title},
-            update_query,
-            upsert=True
-        )
+            await cls.media_collection.update_one({'_id': title}, update_query, upsert=True)
+
+        elif parsed_data['type'] == 'movie':
+            # --- MODIFIED: New logic to aggregate movie versions ---
+            version_data = {
+                'quality': parsed_data['quality'],
+                'codec': parsed_data['codec'],
+                'encoder': parsed_data['encoder'],
+                'size': file_size,
+                'msg_id': msg_id
+            }
+            # Add this version to a 'versions' array if it doesn't already exist
+            await cls.media_collection.update_one(
+                {'_id': title},
+                {'$addToSet': {'versions': version_data}},
+                upsert=True
+            )
 
     @classmethod
     async def get_media_data(cls, title):
