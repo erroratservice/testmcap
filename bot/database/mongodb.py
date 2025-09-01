@@ -73,12 +73,19 @@ class MongoDB:
 
     @classmethod
     async def start_scan(cls, scan_id, channel_id, user_id, total_messages, chat_title, operation):
+        """Creates or overwrites a scan document to prevent duplicate key errors."""
         if cls.task_collection is None: return
-        await cls.task_collection.insert_one({
+        scan_document = {
             '_id': scan_id, 'type': 'active_scan', 'operation': operation,
             'channel_id': channel_id, 'user_id': user_id, 'total_messages': total_messages,
             'processed_messages': 0, 'chat_title': chat_title
-        })
+        }
+        # --- MODIFIED: Use update_one with upsert=True to prevent crashes ---
+        await cls.task_collection.update_one(
+            {'_id': scan_id},
+            {'$set': scan_document},
+            upsert=True
+        )
     
     @classmethod
     async def update_scan_total(cls, scan_id, total_messages):
