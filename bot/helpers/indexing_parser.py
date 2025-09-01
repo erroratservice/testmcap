@@ -17,7 +17,7 @@ KNOWN_ENCODERS = {
     'S4KK', 'D-Z0N3', 'PTer', 'BBL', 'BMF', 'FASM', 'SC4R', '4KiNGS',
     'HDX', 'DEFLATE', 'TERMiNAL', 'PTP', 'ROKiT', 'SWTYBLZ', 'HOMELANDER',
     'TombDoc', 'Walter', 'RZEROX',
-    'V3SP4EV3R' # Added the encoder you specified
+    'V3SP4EV3R'
 }
 
 IGNORED_TAGS = {
@@ -29,6 +29,25 @@ IGNORED_TAGS = {
     'PROPER', 'COMPLETE', 'FULL SERIES', 'INT', 'RIP', 'MULTI', 'GB', 'XVID'
 }
 
+def parse_caption_info(caption):
+    """Parses quality and codec from the 'Video: ...' line in a caption."""
+    if not caption:
+        return {}
+    
+    # Regex to find "Video: HEVC 1080p" or "Video: H264 404p"
+    video_line_match = re.search(r'Video:\s*([a-zA-Z0-9]+)\s*(\d{3,4}p|4K)', caption, re.IGNORECASE)
+    if not video_line_match:
+        return {}
+
+    codec_map = {'HEVC': 'X265', 'H264': 'X264', 'AVC': 'X264'}
+    codec = video_line_match.group(1).upper()
+    quality = video_line_match.group(2).upper()
+
+    return {
+        'codec': codec_map.get(codec, codec),
+        'quality': "4K" if "2160" in quality else quality
+    }
+
 def parse_media_info(filename, caption=None):
     """
     Intelligently parses and merges media info from both the filename and caption.
@@ -36,22 +55,18 @@ def parse_media_info(filename, caption=None):
     base_name, is_split = get_base_name(filename)
 
     filename_info = extract_info_from_text(base_name)
-    caption_info = extract_info_from_text(caption or "")
+    caption_info = parse_caption_info(caption)
 
-    # If filename parsing completely fails, we can't proceed
+    # If filename parsing fails completely, we can't proceed.
     if not filename_info or not filename_info.get('type'):
         return None
 
-    # Prioritize caption info if it's valid, otherwise use filename info.
-    caption_quality = caption_info.get('quality', 'Unknown') if caption_info else 'Unknown'
-    final_quality = caption_quality if caption_quality != 'Unknown' else filename_info.get('quality', 'Unknown')
-
-    caption_codec = caption_info.get('codec', 'Unknown') if caption_info else 'Unknown'
-    final_codec = caption_codec if caption_codec != 'Unknown' else filename_info.get('codec', 'Unknown')
-
-    caption_encoder = caption_info.get('encoder', 'Unknown') if caption_info else 'Unknown'
-    final_encoder = caption_encoder if caption_encoder != 'Unknown' else filename_info.get('encoder', 'Unknown')
-
+    # Merge results, prioritizing valid caption info over filename info.
+    final_quality = caption_info.get('quality') or filename_info.get('quality', 'Unknown')
+    final_codec = caption_info.get('codec') or filename_info.get('codec', 'Unknown')
+    
+    # Encoder information can only come from the filename.
+    final_encoder = filename_info.get('encoder', 'Unknown')
 
     if filename_info['type'] == 'series':
         return {
@@ -145,7 +160,7 @@ def get_encoder(text):
     
     # Iterate from the end of the filename backwards
     for tag in reversed(potential_tags):
-        if not tag:  # Skip empty strings that can result from splitting
+        if not tag:
             continue
             
         tag_upper = tag.upper()
