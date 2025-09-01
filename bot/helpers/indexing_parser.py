@@ -34,23 +34,14 @@ def parse_media_info(filename, caption=None):
     Intelligently parses and merges media info from both the filename and caption.
     """
     base_name, is_split = get_base_name(filename)
-
-    # Step 1: Get all possible info from the filename.
     filename_info = extract_info_from_text(base_name)
     
-    # If the filename itself is unparsable for basic info (title, type), we can't continue.
     if not filename_info:
         return None
 
-    # Step 2: Get all possible info from the caption.
     caption_info = extract_info_from_text(caption or "")
-
-    # Step 3: Intelligently merge the results.
-    
-    # The filename is the source of truth for title, season, episodes, and year.
     final_info = filename_info.copy()
     
-    # For quality and codec, prioritize caption info if it's valid, otherwise use filename info.
     filename_quality = filename_info.get('quality', 'Unknown')
     caption_quality = caption_info.get('quality', 'Unknown') if caption_info else 'Unknown'
     final_info['quality'] = caption_quality if caption_quality != 'Unknown' else filename_quality
@@ -59,15 +50,11 @@ def parse_media_info(filename, caption=None):
     caption_codec = caption_info.get('codec', 'Unknown') if caption_info else 'Unknown'
     final_info['codec'] = caption_codec if caption_codec != 'Unknown' else filename_codec
     
-    # Encoder information is most reliable from the filename and is strictly checked.
     final_info['encoder'] = filename_info.get('encoder', 'Unknown')
-
-    # Add back metadata about the file itself.
     final_info['is_split'] = is_split
     final_info['base_name'] = base_name
     
     return final_info
-
 
 def get_base_name(filename):
     """Identifies split files and returns their base name."""
@@ -94,7 +81,6 @@ def extract_info_from_text(text):
     codec = get_codec(text)
     encoder = get_encoder(text)
 
-    # Heuristic: If it has a season/episode marker, it's a series.
     if series_match:
         title_part, season_str, start_ep_str, end_ep_str = series_match.groups()
         title = re.sub(r'[\._]', ' ', title_part).strip().title()
@@ -107,7 +93,6 @@ def extract_info_from_text(text):
             'encoder': encoder, 'type': 'series'
         }
 
-    # If no series match, check for a movie match.
     if movie_match:
         title, year = movie_match.groups()
         return {
@@ -117,14 +102,12 @@ def extract_info_from_text(text):
             'type': 'movie'
         }
     
-    # Fallback for captions that might only contain quality/codec info
     if quality != 'Unknown' or codec != 'Unknown':
         return {'quality': quality, 'codec': codec}
 
     return None
 
 def get_quality(text):
-    # This regex now also handles the simple "Video: ... 404p" format from captions
     match = re.search(r'\b(4K|2160p|1080p|720p|576p|540p|480p|404p)\b', text, re.IGNORECASE)
     if match:
         quality = match.group(1).upper()
@@ -132,7 +115,6 @@ def get_quality(text):
     return 'Unknown'
 
 def get_codec(text):
-    # This regex now also handles the simple "Video: H264" format from captions
     if re.search(r'\b(AV1)\b', text, re.IGNORECASE): return 'AV1'
     if re.search(r'\b(VP9)\b', text, re.IGNORECASE): return 'VP9'
     if re.search(r'\b(HEVC|x265|H\s*265)\b', text, re.IGNORECASE): return 'X265'
@@ -140,24 +122,13 @@ def get_codec(text):
     return 'Unknown'
 
 def get_encoder(text):
-    """
-    Strict encoder detection. It ONLY returns an encoder if it's found in the
-    KNOWN_ENCODERS list. It will NEVER guess or return a random word.
-    """
-    # Split the text by common delimiters to get individual tags.
+    """Strict encoder detection. It ONLY returns an encoder if it's in the KNOWN_ENCODERS list."""
     potential_tags = re.split(r'[ ._\[\]()\-]+', text)
     
-    # Iterate from the end of the filename backwards, as encoders are usually last.
     for tag in reversed(potential_tags):
-        if not tag:
-            continue # Skip any empty strings from the split.
-            
+        if not tag: continue
         tag_upper = tag.upper()
-        
-        # The ONLY condition for returning an encoder: it must be in the known list.
         if tag_upper in KNOWN_ENCODERS:
             return tag_upper
             
-    # If the loop finishes without finding a match, it means there is no known
-    # encoder in the filename. Therefore, we return 'Unknown'.
     return 'Unknown'
