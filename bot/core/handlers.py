@@ -14,16 +14,12 @@ from bot.modules.indexfiles import indexfiles_handler
 from bot.modules.status import status_handler
 from bot.modules.settings import settings_handler, set_index_channel_callback, receive_channel_id_handler
 from bot.modules.help import help_handler
-from bot.core.tasks import ACTIVE_TASKS
+from bot.core.tasks import ACTIVE_TASKS, USER_STATES # Import from the new location
 
 LOGGER = logging.getLogger(__name__)
 
-# A simple state tracker for conversations
-user_states = {}
-
 async def start_handler(client, message):
     """Welcome message handler"""
-    # --- MODIFIED: Updated the description for the /settings command ---
     welcome_text = """🤖 **Media Indexing Bot** *(Powered by Pyrofork)*
 
 🎯 **Purpose:** Extract MediaInfo and organize channel content
@@ -63,7 +59,7 @@ def register_handlers():
     
     # --- State-based filter for conversation ---
     async def awaiting_channel_id_filter(_, __, message):
-        return user_states.get(message.from_user.id) == "awaiting_index_channel"
+        return USER_STATES.get(message.from_user.id) == "awaiting_index_channel"
 
     # Command Handlers
     command_handlers = [
