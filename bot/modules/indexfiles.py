@@ -13,13 +13,13 @@ from bot.helpers.formatters import format_series_post, format_movie_post
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
-from bot.helpers.channel_utils import get_history_for_processing
+from bot.helpers.channel_utils import stream_history_for_processing # Import the new streaming helper
 
 LOGGER = logging.getLogger(__name__)
 
 # Mock data for total episodes per season
 TOTAL_EPISODES_MAP = {}
-BATCH_SIZE = 100
+PROCESSING_BATCH_SIZE = 100 # Internal processing batch size
 
 async def indexfiles_handler(client, message):
     """Handler for the /indexfiles command."""
@@ -48,85 +48,82 @@ async def indexfiles_handler(client, message):
         await send_message(message, f"❌ **Error:** {e}")
 
 async def create_channel_index(channel_id, message, scan_id, force=False):
-    """The main indexing process with split file handling."""
+    """The main indexing process using the new streaming and caching model."""
     user_id = message.from_user.id
     chat = None
     
     try:
         chat = await TgClient.user.get_chat(channel_id)
         
-        messages = await get_history_for_processing(channel_id, force=force)
-        if not messages:
-            await send_reply(message, f"✅ No new files to index in **{chat.title}**.")
-            await MongoDB.end_scan(scan_id)
-            ACTIVE_TASKS.pop(scan_id, None)
-            return
-
-        total_messages = len(messages)
+        # Get total message count for the status updater
+        total_messages = await TgClient.user.get_chat_history_count(chat_id=channel_id)
         await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "Indexing Scan")
-        
-        LOGGER.info(f"Pre-processing {total_messages} messages to group split files...")
         
         message_groups = defaultdict(list)
         unparsable_count = 0
         skipped_count = 0
+        processed_messages_count = 0
         
-        base_name_map = {}
-        for msg in messages:
-            media = msg.video or msg.document
-            if media and hasattr(media, 'file_name') and media.file_name:
-                parsed_temp = parse_media_info(media.file_name)
-                if parsed_temp and parsed_temp.get('is_split'):
-                    base_name = parsed_temp['base_name']
-                    if base_name not in base_name_map:
-                        base_name_map[base_name] = []
-                    base_name_map[base_name].append(msg)
+        # Use the async generator to stream messages in batches
+        async for message_batch in stream_history_for_processing(channel_id, force=force):
+            if not message_batch:
+                continue
+
+            # Pre-process the batch to group split files
+            base_name_map = {}
+            for msg in message_batch:
+                media = msg.video or msg.document
+                if media and hasattr(media, 'file_name') and media.file_name:
+                    parsed_temp = parse_media_info(media.file_name)
+                    if parsed_temp and parsed_temp.get('is_split'):
+                        base_name = parsed_temp['base_name']
+                        if base_name not in base_name_map:
+                            base_name_map[base_name] = []
+                        base_name_map[base_name].append(msg)
+                    else:
+                        message_groups[msg.id] = [msg]
                 else:
-                    message_groups[msg.id] = [msg]
-            else:
-                skipped_count += 1
+                    skipped_count += 1
 
-        for base_name, parts in base_name_map.items():
-            first_message = min(parts, key=lambda x: x.id)
-            message_groups[first_message.id] = parts
-
-        LOGGER.info(f"Finished grouping. Found {len(message_groups)} unique media items.")
-        
-        media_map = defaultdict(list)
-        
-        sorted_groups = sorted(message_groups.values(), key=lambda x: x[0].id)
-
-        for i, msg_group in enumerate(sorted_groups):
-            first_msg = msg_group[0]
-            media = first_msg.video or first_msg.document
-
-            if media and hasattr(media, 'file_name') and media.file_name:
-                parsed = parse_media_info(media.file_name, first_msg.caption)
-                if parsed:
-                    total_size = sum(part.document.file_size for part in msg_group if part.document)
-                    parsed['file_size'] = total_size
-                    parsed['msg_id'] = first_msg.id
-                    collection_title = parsed['title'] if parsed['type'] == 'series' else "Movie Collection"
-                    media_map[collection_title].append(parsed)
-                else:
-                    unparsable_count += 1
-                    LOGGER.warning(f"Could not parse filename: {media.file_name}")
+            for base_name, parts in base_name_map.items():
+                first_message = min(parts, key=lambda x: x.id)
+                message_groups[first_message.id] = parts
             
-            if (i + 1) % BATCH_SIZE == 0 or (i + 1) == len(sorted_groups):
-                LOGGER.info(f"Processing batch of {len(media_map)} titles...")
-                await process_batch(media_map, channel_id)
-                media_map.clear()
-                
-                if (i + 1) < len(sorted_groups):
-                    LOGGER.info(f"Batch complete. Waiting for 10 seconds...")
-                    await asyncio.sleep(10)
+            # Now, process the collected groups
+            media_map = defaultdict(list)
+            sorted_groups = sorted(message_groups.values(), key=lambda x: x[0].id)
+
+            for msg_group in sorted_groups:
+                first_msg = msg_group[0]
+                media = first_msg.video or first_msg.document
+                if media and hasattr(media, 'file_name') and media.file_name:
+                    parsed = parse_media_info(media.file_name, first_msg.caption)
+                    if parsed:
+                        total_size = sum(part.document.file_size for part in msg_group if part.document)
+                        parsed['file_size'] = total_size
+                        parsed['msg_id'] = first_msg.id
+                        collection_title = parsed['title'] if parsed['type'] == 'series' else "Movie Collection"
+                        media_map[collection_title].append(parsed)
+                    else:
+                        unparsable_count += 1
+                processed_messages_count += len(msg_group)
+
+            # Process the batch and update posts
+            LOGGER.info(f"Processing batch of {len(media_map)} titles...")
+            await process_batch(media_map, channel_id)
+            message_groups.clear()
+
+            # Update the main progress counter
+            await MongoDB.update_scan_progress(scan_id, processed_messages_count)
             
-            await MongoDB.update_scan_progress(scan_id, i + 1)
+            LOGGER.info(f"Batch complete. Waiting for 10 seconds before next batch...")
+            await asyncio.sleep(10)
 
         LOGGER.info(f"✅ Full indexing scan complete for channel {chat.title}.")
         
         summary_text = (f"✅ **Indexing Task Finished for {chat.title}**\n\n"
-                        f"- **Unparsable Media:** {unparsable_count} files\n"
+                        f"- **Indexed Media:** {processed_messages_count - skipped_count - unparsable_count} items\n"
+                        f"- **Unparsable Files:** {unparsable_count} files\n"
                         f"- **Skipped Non-Media:** {skipped_count} messages")
         await send_reply(message, summary_text)
 
@@ -166,7 +163,7 @@ async def update_or_create_post(title, channel_id):
             is_complete = True
             if TOTAL_EPISODES_MAP.get(title):
                 for season, expected_eps in TOTAL_EPISODES_MAP[title].items():
-                    if len(media_data.get('seasons', {}).get(str(season), {}).get('episodes', [])) != expected_eps:
+                    if len(media_data.get('seasons', {}, {}).get(str(season), {}).get('episodes', [])) != expected_eps:
                         is_complete = False
                         break
             media_data['is_complete'] = is_complete
@@ -203,16 +200,12 @@ async def get_target_channels(message):
     if message.reply_to_message and message.reply_to_message.document:
         return await extract_channel_list(message.reply_to_message)
     
-    # Define known flags to ignore
     known_flags = ['-rescan', '-f']
-    
-    # Find the argument that is not a known flag
     args = [arg for arg in message.command[1:] if arg not in known_flags]
     
     if args:
         channel_id = args[0]
         try:
-            # Handle both formats: -100... and the command attached like /indexfiles-100...
             if channel_id.startswith('-100'):
                 return [int(channel_id)]
             elif channel_id.isdigit():
