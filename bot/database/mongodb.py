@@ -18,9 +18,7 @@ class MongoDB:
         try:
             cls.client = AsyncIOMotorClient(Config.DATABASE_URL)
             cls.db = cls.client.mediaindexbot
-            # Collection for tasks, status messages, and post tracking
             cls.task_collection = cls.db.mcapindexer
-            # Separate collection for the detailed media data
             cls.media_collection = cls.db.media_data
             await cls.client.admin.command('ismaster')
             LOGGER.info("✅ MongoDB connected successfully.")
@@ -34,7 +32,6 @@ class MongoDB:
             cls.client.close()
             LOGGER.info("✅ MongoDB connection closed.")
 
-    # --- Live Status & Task Management ---
     @classmethod
     async def set_status_message(cls, chat_id, message_id):
         if cls.task_collection is None: return
@@ -87,10 +84,8 @@ class MongoDB:
         if cls.task_collection is None: return
         await cls.task_collection.delete_many({'type': 'active_scan'})
 
-    # --- Advanced Indexing ---
     @classmethod
     async def get_or_create_post(cls, title, channel_id):
-        """Finds an existing post for a title or creates a placeholder."""
         if cls.task_collection is None: return None
         doc_id = f"post_{channel_id}_{title.lower().replace(' ', '_')}"
         post = await cls.task_collection.find_one({'_id': doc_id})
@@ -101,13 +96,11 @@ class MongoDB:
 
     @classmethod
     async def update_post_message_id(cls, post_id, message_id):
-        """Updates the message_id for a given post."""
         if cls.task_collection is None: return
         await cls.task_collection.update_one({'_id': post_id}, {'$set': {'message_id': message_id}})
 
     @classmethod
     async def add_media_entry(cls, parsed_data, file_size, msg_id):
-        """Adds or updates a media entry in the database."""
         if cls.media_collection is None: return
         
         title = parsed_data['title']
@@ -134,6 +127,5 @@ class MongoDB:
 
     @classmethod
     async def get_media_data(cls, title):
-        """Retrieves all aggregated data for a given title."""
         if cls.media_collection is None: return None
         return await cls.media_collection.find_one({'_id': title})
