@@ -1,5 +1,5 @@
 """
-High-performance, concurrent MediaInfo processing module with enhanced error logging.
+High-performance, concurrent MediaInfo processing module with optimized chunking.
 """
 
 import asyncio
@@ -18,8 +18,8 @@ from bot.core.tasks import ACTIVE_TASKS
 
 LOGGER = logging.getLogger(__name__)
 
-# Configuration
-CHUNK_STEPS = [5, 10, 15]
+# --- MODIFIED: Configuration now only uses one chunk step for efficiency ---
+CHUNK_LIMIT = 5 # Try with 5 chunks (approx. 5MB)
 FULL_DOWNLOAD_LIMIT = 200 * 1024 * 1024
 MEDIAINFO_TIMEOUT = 30
 FFPROBE_TIMEOUT = 60
@@ -104,12 +104,10 @@ async def process_channel_concurrently(channel_id, message, scan_id):
                 except Exception:
                     stats["errors"] += 1
                     failed_ids_internal.append(msg.id)
-                    # Raise the exception so asyncio.gather can catch and log it
                     raise
 
         tasks = [worker(msg) for msg in reversed(messages)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-
         for result in results:
             if isinstance(result, Exception):
                 LOGGER.error(f"A task failed with an exception: {result}", exc_info=True)
@@ -237,7 +235,7 @@ async def process_message_full_download_only(client, message):
         await cleanup_files([temp_file])
 
 async def process_message_enhanced(client, message):
-    """Process message with iterative chunk strategy and ffprobe fallback."""
+    """Process message with an optimized chunk strategy and ffprobe fallback."""
     temp_file = None
     try:
         media = message.video or message.audio or message.document
@@ -250,26 +248,27 @@ async def process_message_enhanced(client, message):
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
         temp_file = os.path.join(temp_dir, f"temp_{message.id}.tmp")
 
-        for step in CHUNK_STEPS:
-            try:
-                async with aiopen(temp_file, "wb") as f:
-                    chunk_count = 0
-                    async for chunk in client.stream_media(message, limit=step):
-                        await f.write(chunk)
-                        chunk_count += 1
-                
-                if chunk_count > 0:
-                    metadata = await extract_mediainfo_from_file(temp_file)
-                    if metadata:
-                        video_info, audio_tracks = parse_essential_metadata(metadata)
-                        if video_info or audio_tracks:
-                            if await update_caption_clean(message, video_info, audio_tracks):
-                                await cleanup_files([temp_file])
-                                return True, f"chunk{step}"
-            except Exception as e:
-                LOGGER.warning(f"Chunk-based processing failed for message {message.id} at step {step}: {e}")
-                pass
+        # --- MODIFIED: Simplified to one chunk attempt ---
+        try:
+            async with aiopen(temp_file, "wb") as f:
+                chunk_count = 0
+                async for chunk in client.stream_media(message, limit=CHUNK_LIMIT):
+                    await f.write(chunk)
+                    chunk_count += 1
+            
+            if chunk_count > 0:
+                metadata = await extract_mediainfo_from_file(temp_file)
+                if metadata:
+                    video_info, audio_tracks = parse_essential_metadata(metadata)
+                    if video_info or audio_tracks:
+                        if await update_caption_clean(message, video_info, audio_tracks):
+                            await cleanup_files([temp_file])
+                            return True, f"chunk{CHUNK_LIMIT}"
+        except Exception as e:
+            LOGGER.warning(f"Chunk-based processing failed for message {message.id}: {e}")
+            pass
 
+        # Fallback to full download if chunk method fails
         if file_size <= FULL_DOWNLOAD_LIMIT:
             try:
                 await asyncio.wait_for(message.download(temp_file), timeout=300.0)
