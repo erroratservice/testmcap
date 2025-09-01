@@ -1,5 +1,5 @@
 """
-Formatting helpers to generate a clean, minimalist index post for both series and movies.
+Formatting helpers to generate the text for index posts.
 """
 from datetime import datetime
 from collections import defaultdict
@@ -35,24 +35,20 @@ def format_series_post(title, data, total_episodes_map):
     return text
 
 def format_movie_post(title, data):
-    """Formats the final text for a movie collection post with a clean, minimalist style."""
+    """Formats the final text for a single movie post, listing all available versions."""
     text = f"**{title}**\n\n"
     
-    # Group movies by year for chronological sorting
-    movies_by_year = defaultdict(list)
-    if 'movies' in data:
-        for movie_data in data.get('movies', []):
-            movies_by_year[movie_data['year']].append(movie_data)
-
-    for year in sorted(movies_by_year.keys()):
-        for i, movie_data in enumerate(movies_by_year[year]):
-            prefix = "└─" if i == len(movies_by_year[year]) - 1 else "├─"
+    if 'versions' in data:
+        for i, version_data in enumerate(data['versions']):
+            prefix = "└─" if i == len(data['versions']) - 1 else "├─"
             
-            quality_line = f"**{movie_data['quality']} {movie_data['codec']}**"
-            if movie_data['encoder'] != 'Unknown':
-                quality_line += f" ({movie_data['encoder']})"
+            quality_line = f"**{version_data['quality']} {version_data['codec']}**"
+            if version_data['encoder'] != 'Unknown':
+                quality_line += f" ({version_data['encoder']})"
             
-            text += f"{prefix} **{movie_data['title']} ({year})**: {quality_line}\n"
+            size_gb = version_data.get('size', 0) / (1024**3)
+            
+            text += f"{prefix} {quality_line} ({size_gb:.1f}GB)\n"
 
     text += f"\nLast Updated: {datetime.now().strftime('%b %d, %Y %I:%M %p IST')}"
     return text
