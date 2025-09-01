@@ -1,5 +1,5 @@
 """
-Advanced index files command with media type filtering.
+Advanced index files command with a batched processing system for movies and series.
 """
 import logging
 import asyncio
@@ -9,17 +9,12 @@ from bot.core.config import Config
 from bot.helpers.message_utils import send_message, send_reply
 from bot.helpers.file_utils import extract_channel_list
 from bot.helpers.indexing_parser import parse_media_info
-from bot.helpers.formatters import format_series_post
+from bot.helpers.formatters import format_series_post, format_movie_post
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
 
 LOGGER = logging.getLogger(__name__)
-
-# --- NEW: List of valid media file extensions to process ---
-VALID_MEDIA_EXTENSIONS = {
-    '.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v'
-}
 
 # Mock data for total episodes per season
 TOTAL_EPISODES_MAP = {}
@@ -75,12 +70,6 @@ async def create_channel_index(channel_id, message, scan_id):
         for msg in messages:
             media = msg.video or msg.document
             if media and hasattr(media, 'file_name') and media.file_name:
-                # --- MODIFIED: Check if the file is a valid media type ---
-                file_ext = os.path.splitext(media.file_name)[1].lower()
-                if file_ext not in VALID_MEDIA_EXTENSIONS:
-                    skipped_count += 1
-                    continue # Skip this file
-                
                 parsed_temp = parse_media_info(media.file_name)
                 if parsed_temp and parsed_temp.get('is_split'):
                     base_name = parsed_temp['base_name']
@@ -112,7 +101,9 @@ async def create_channel_index(channel_id, message, scan_id):
                     total_size = sum(part.document.file_size for part in msg_group if part.document)
                     parsed['file_size'] = total_size
                     parsed['msg_id'] = first_msg.id
-                    media_map[parsed['title']].append(parsed)
+                    # Use a generic 'collection_title' for movies, or the series title
+                    collection_title = parsed['title'] if parsed['type'] == 'series' else "Movie Collection"
+                    media_map[collection_title].append(parsed)
                 else:
                     unparsable_count += 1
                     LOGGER.warning(f"Could not parse filename: {media.file_name}")
@@ -154,9 +145,10 @@ async def process_batch(media_map, channel_id):
                     item_copy = item.copy()
                     item_copy['episode'] = episode_num
                     await MongoDB.add_media_entry(item_copy, item['file_size'], item['msg_id'])
+            elif item.get('type') == 'movie':
+                await MongoDB.add_media_entry(item, item['file_size'], item['msg_id'])
         
-        if items and items[0].get('type') == 'series':
-            await update_or_create_post(title, channel_id)
+        await update_or_create_post(title, channel_id)
 
 async def update_or_create_post(title, channel_id):
     """Fetches data and updates or creates a post for a given title."""
@@ -166,15 +158,18 @@ async def update_or_create_post(title, channel_id):
         
         if not media_data: return
 
-        is_complete = True
-        if TOTAL_EPISODES_MAP.get(title):
-            for season, expected_eps in TOTAL_EPISODES_MAP[title].items():
-                if len(media_data.get('seasons', {}).get(str(season), {}).get('episodes', [])) != expected_eps:
-                    is_complete = False
-                    break
-        media_data['is_complete'] = is_complete
-
-        post_text = format_series_post(title, media_data, TOTAL_EPISODES_MAP)
+        # Determine if we are formatting a series or a movie collection
+        if 'seasons' in media_data:
+            is_complete = True
+            if TOTAL_EPISODES_MAP.get(title):
+                for season, expected_eps in TOTAL_EPISODES_MAP[title].items():
+                    if len(media_data.get('seasons', {}).get(str(season), {}).get('episodes', [])) != expected_eps:
+                        is_complete = False
+                        break
+            media_data['is_complete'] = is_complete
+            post_text = format_series_post(title, media_data, TOTAL_EPISODES_MAP)
+        else:
+             post_text = format_movie_post(title, media_data)
 
         if len(post_text) > 4096:
             post_text = post_text[:4090] + "\n..."
@@ -196,7 +191,6 @@ async def update_or_create_post(title, channel_id):
 
     except Exception as e:
         LOGGER.error(f"Failed to update post for '{title}': {e}")
-
 
 async def get_target_channels(message):
     if message.reply_to_message and message.reply_to_message.document:
