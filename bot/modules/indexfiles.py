@@ -13,6 +13,7 @@ from bot.helpers.formatters import format_series_post, format_movie_post
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
+from bot.helpers.channel_utils import get_history_for_processing # Import new helper
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,9 +28,11 @@ async def indexfiles_handler(client, message):
             await send_message(message, "❌ **Error:** Database is not connected.")
             return
 
+        is_force_rescan = '-rescan' in message.command
+
         channels = await get_target_channels(message)
         if not channels:
-            await send_message(message, "❌ **Usage:** `/indexfiles -100123...`")
+            await send_message(message, "❌ **Usage:** `/indexfiles -100123... [-rescan]`")
             return
         
         channel_id = channels[0]
@@ -37,14 +40,14 @@ async def indexfiles_handler(client, message):
         await trigger_status_creation(message)
         
         scan_id = f"index_{channel_id}_{message.id}"
-        task = asyncio.create_task(create_channel_index(channel_id, message, scan_id))
+        task = asyncio.create_task(create_channel_index(channel_id, message, scan_id, force=is_force_rescan))
         ACTIVE_TASKS[scan_id] = task
             
     except Exception as e:
         LOGGER.error(f"IndexFiles handler error: {e}")
         await send_message(message, f"❌ **Error:** {e}")
 
-async def create_channel_index(channel_id, message, scan_id):
+async def create_channel_index(channel_id, message, scan_id, force=False):
     """The main indexing process with split file handling."""
     user_id = message.from_user.id
     chat = None
@@ -52,13 +55,16 @@ async def create_channel_index(channel_id, message, scan_id):
     try:
         chat = await TgClient.user.get_chat(channel_id)
         
-        await MongoDB.start_scan(scan_id, channel_id, user_id, 0, chat.title, "Indexing Scan")
-        
-        history_generator = TgClient.user.get_chat_history(chat_id=channel_id)
-        messages = [msg async for msg in history_generator]
+        # --- MODIFIED: Use the new helper to get messages ---
+        messages = await get_history_for_processing(channel_id, force=force)
+        if not messages:
+            await send_reply(message, f"✅ No new files to index in **{chat.title}**.")
+            await MongoDB.end_scan(scan_id)
+            ACTIVE_TASKS.pop(scan_id, None)
+            return
+
         total_messages = len(messages)
-        
-        await MongoDB.update_scan_total(scan_id, total_messages)
+        await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "Indexing Scan")
         
         LOGGER.info(f"Pre-processing {total_messages} messages to group split files...")
         
@@ -136,6 +142,8 @@ async def create_channel_index(channel_id, message, scan_id):
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)
 
+# --- The rest of the file (from process_batch onwards) remains unchanged ---
+# (Code truncated for brevity)
 async def process_batch(media_map, channel_id):
     """Aggregates and updates posts for a batch of collected media."""
     for title, items in media_map.items():
@@ -198,9 +206,12 @@ async def update_or_create_post(title, channel_id):
 async def get_target_channels(message):
     if message.reply_to_message and message.reply_to_message.document:
         return await extract_channel_list(message.reply_to_message)
-    elif len(message.command) > 1:
+    
+    # Filter out flags like -rescan to find the channel ID
+    args = [arg for arg in message.command[1:] if not arg.startswith('-')]
+    if args:
         try:
-            return [int(message.command[1])]
+            return [int(args[0])]
         except ValueError:
             return []
     return []
