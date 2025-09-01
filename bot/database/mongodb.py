@@ -12,7 +12,7 @@ class MongoDB:
     db = None
     task_collection = None
     media_collection = None
-    message_ids_cache = None # New cache collection
+    message_ids_cache = None
 
     @classmethod
     async def initialize(cls):
@@ -21,7 +21,7 @@ class MongoDB:
             cls.db = cls.client.mediaindexbot
             cls.task_collection = cls.db.mcapindexer
             cls.media_collection = cls.db.media_data
-            cls.message_ids_cache = cls.db.message_ids_cache # Initialize collection
+            cls.message_ids_cache = cls.db.message_ids_cache
             await cls.client.admin.command('ismaster')
             LOGGER.info("✅ MongoDB connected successfully.")
         except Exception as e:
@@ -34,8 +34,6 @@ class MongoDB:
             cls.client.close()
             LOGGER.info("✅ MongoDB connection closed.")
 
-    # --- NEW METHODS FOR MESSAGE ID CACHING ---
-    
     @classmethod
     async def get_cached_message_ids(cls, channel_id):
         """Retrieves a list of cached message IDs for a given channel."""
@@ -59,8 +57,38 @@ class MongoDB:
         if cls.message_ids_cache is None: return
         await cls.message_ids_cache.delete_one({'_id': channel_id})
 
+    # --- NEW METHOD TO CLEAR MEDIA DATA ---
+    @classmethod
+    async def clear_media_data_for_channel(cls, channel_id):
+        """
+        Deletes all media documents and post trackers associated with a specific channel ID
+        to ensure a clean slate for a rescan.
+        """
+        if cls.db is None: return
+        
+        # This is a bit complex as media is not directly tied to a channel_id.
+        # We will delete the posts, which forces a full rebuild.
+        # A more robust solution might involve adding channel_id to media_data documents.
+        
+        # For now, let's clear the post trackers, which will force new posts to be created.
+        post_prefix = f"post_{channel_id}_"
+        await cls.task_collection.delete_many({'_id': {'$regex': f'^{post_prefix}'}})
 
-    # --- EXISTING METHODS (truncated for brevity) ---
+        # And also clear the actual aggregated media data.
+        # This is tricky without a channel_id in the media_collection.
+        # A simple approach for a full reset is to clear the whole collection.
+        # Be cautious with this in a multi-user environment.
+        # For this bot's purpose, we'll assume a clean wipe is acceptable on rescan.
+        
+        # Let's find all titles associated with the channel's posts and delete them.
+        cursor = cls.task_collection.find({'_id': {'$regex': f'^{post_prefix}'}})
+        titles_to_delete = [doc['title'] async for doc in cursor]
+        
+        if titles_to_delete:
+            await cls.media_collection.delete_many({'_id': {'$in': titles_to_delete}})
+            LOGGER.info(f"Cleared media data for {len(titles_to_delete)} titles from channel {channel_id}.")
+
+    # --- EXISTING METHODS ---
     @classmethod
     async def set_status_message(cls, chat_id, message_id):
         if cls.task_collection is None: return
@@ -109,7 +137,6 @@ class MongoDB:
             'channel_id': channel_id, 'user_id': user_id, 'total_messages': total_messages,
             'processed_messages': 0, 'chat_title': chat_title
         }
-        # --- MODIFIED: Use update_one with upsert=True to prevent crashes ---
         await cls.task_collection.update_one(
             {'_id': scan_id},
             {'$set': scan_document},
@@ -155,7 +182,7 @@ class MongoDB:
         doc_id = f"post_{channel_id}_{title.lower().replace(' ', '_')}"
         post = await cls.task_collection.find_one({'_id': doc_id})
         if not post:
-            post = {'_id': doc_id, 'title': title, 'message_id': None}
+            post = {'_id': doc_id, 'title': title, 'channel_id': channel_id, 'message_id': None}
             await cls.task_collection.insert_one(post)
         return post
 
