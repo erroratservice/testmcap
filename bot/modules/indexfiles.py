@@ -13,7 +13,7 @@ from bot.helpers.formatters import format_series_post, format_movie_post
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
-from bot.helpers.channel_utils import get_history_for_processing # Import new helper
+from bot.helpers.channel_utils import get_history_for_processing
 
 LOGGER = logging.getLogger(__name__)
 
@@ -55,7 +55,6 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
     try:
         chat = await TgClient.user.get_chat(channel_id)
         
-        # --- MODIFIED: Use the new helper to get messages ---
         messages = await get_history_for_processing(channel_id, force=force)
         if not messages:
             await send_reply(message, f"✅ No new files to index in **{chat.title}**.")
@@ -76,7 +75,6 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
         for msg in messages:
             media = msg.video or msg.document
             if media and hasattr(media, 'file_name') and media.file_name:
-                # --- MODIFIED: Safely handle None from the parser ---
                 parsed_temp = parse_media_info(media.file_name)
                 if parsed_temp and parsed_temp.get('is_split'):
                     base_name = parsed_temp['base_name']
@@ -142,13 +140,10 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)
 
-# --- The rest of the file (from process_batch onwards) remains unchanged ---
-# (Code truncated for brevity)
 async def process_batch(media_map, channel_id):
     """Aggregates and updates posts for a batch of collected media."""
     for title, items in media_map.items():
         for item in items:
-            # --- MODIFIED: Correctly handle both series and movies to prevent KeyError ---
             if item.get('type') == 'series':
                 for episode_num in item.get('episodes', []):
                     item_copy = item.copy()
@@ -204,14 +199,25 @@ async def update_or_create_post(title, channel_id):
 
 
 async def get_target_channels(message):
+    """Correctly extracts the channel ID while ignoring known flags."""
     if message.reply_to_message and message.reply_to_message.document:
         return await extract_channel_list(message.reply_to_message)
     
-    # Filter out flags like -rescan to find the channel ID
-    args = [arg for arg in message.command[1:] if not arg.startswith('-')]
+    # Define known flags to ignore
+    known_flags = ['-rescan', '-f']
+    
+    # Find the argument that is not a known flag
+    args = [arg for arg in message.command[1:] if arg not in known_flags]
+    
     if args:
+        channel_id = args[0]
         try:
-            return [int(args[0])]
-        except ValueError:
-            return []
+            # Handle both formats: -100... and the command attached like /indexfiles-100...
+            if channel_id.startswith('-100'):
+                return [int(channel_id)]
+            elif channel_id.isdigit():
+                 return [int(f"-100{channel_id}")]
+        except (ValueError, IndexError):
+            pass
+
     return []
