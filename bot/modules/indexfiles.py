@@ -1,10 +1,9 @@
 """
-Advanced index files command with a batched processing system.
+Advanced index files command with a batched processing system for split files and episode ranges.
 """
 import logging
 import asyncio
 from collections import defaultdict
-from datetime import datetime
 from bot.core.client import TgClient
 from bot.core.config import Config
 from bot.helpers.message_utils import send_message, send_reply
@@ -19,9 +18,10 @@ LOGGER = logging.getLogger(__name__)
 
 # Mock data for total episodes per season
 TOTAL_EPISODES_MAP = {
-    "Breaking Bad": {1: 7, 2: 13, 3: 13, 4: 13, 5: 16},
-    "Game of Thrones": {1: 10, 2: 10, 3: 10, 4: 10, 5: 10, 6: 10, 7: 7, 8: 6},
-    "Byker Grove": {5: 20}
+    "Battlestar Galactica (2003)": {0: 10},
+    "Dr Katz, Professional Therapist": {1: 6, 2: 9},
+    "Knight Rider": {1: 21, 2: 21, 3: 22, 4: 21},
+    "Naruto": {1: 52, 2: 53, 3: 57, 4: 57}
 }
 BATCH_SIZE = 100
 
@@ -50,7 +50,7 @@ async def indexfiles_handler(client, message):
         await send_message(message, f"❌ **Error:** {e}")
 
 async def create_channel_index(channel_id, message, scan_id):
-    """The main indexing process with batched scan and update phases."""
+    """The main indexing process with split file handling."""
     user_id = message.from_user.id
     chat = None
     
@@ -63,29 +63,60 @@ async def create_channel_index(channel_id, message, scan_id):
         
         await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "Indexing Scan")
         
-        media_map = defaultdict(list)
+        # --- PHASE 1: Pre-process messages to group split files ---
+        LOGGER.info(f"Pre-processing {total_messages} messages to group split files...")
+        
+        message_groups = defaultdict(list)
         unparsable_count = 0
         skipped_count = 0
 
-        for i, msg in enumerate(reversed(messages)):
-            media = msg.video or msg.audio or msg.document
+        # Create a dictionary to hold the first message for each base name
+        base_name_map = {}
+        for msg in messages:
+            media = msg.video or msg.document
             if media and hasattr(media, 'file_name') and media.file_name:
-                parsed = parse_media_info(media.file_name, msg.caption)
+                base_name, is_split = parse_media_info(media.file_name).get('base_name', (media.file_name, False)) if parse_media_info(media.file_name) else (media.file_name, False)
+                if is_split:
+                    if base_name not in base_name_map:
+                        base_name_map[base_name] = []
+                    base_name_map[base_name].append(msg)
+                else:
+                    message_groups[msg.id] = [msg] # Non-split files
+            else:
+                skipped_count += 1
+
+        # Add the grouped split files to the main message_groups dictionary
+        for base_name, parts in base_name_map.items():
+            first_message = min(parts, key=lambda x: x.id)
+            message_groups[first_message.id] = parts
+
+        LOGGER.info(f"Finished grouping. Found {len(message_groups)} unique media items.")
+        
+        # --- PHASE 2: Scan and update in batches ---
+        media_map = defaultdict(list)
+        
+        sorted_groups = sorted(message_groups.values(), key=lambda x: x[0].id)
+
+        for i, msg_group in enumerate(sorted_groups):
+            first_msg = msg_group[0]
+            media = first_msg.video or first_msg.document
+
+            if media and hasattr(media, 'file_name') and media.file_name:
+                parsed = parse_media_info(media.file_name, first_msg.caption)
                 if parsed:
-                    parsed['file_size'] = media.file_size
-                    parsed['msg_id'] = msg.id
+                    total_size = sum(part.document.file_size for part in msg_group if part.document)
+                    parsed['file_size'] = total_size
+                    parsed['msg_id'] = first_msg.id
                     media_map[parsed['title']].append(parsed)
                 else:
                     unparsable_count += 1
-            else:
-                skipped_count += 1
             
-            if (i + 1) % BATCH_SIZE == 0 or (i + 1) == total_messages:
+            if (i + 1) % BATCH_SIZE == 0 or (i + 1) == len(sorted_groups):
                 LOGGER.info(f"Processing batch of {len(media_map)} titles...")
                 await process_batch(media_map, channel_id)
                 media_map.clear()
                 
-                if (i + 1) < total_messages:
+                if (i + 1) < len(sorted_groups):
                     LOGGER.info(f"Batch complete. Waiting for 10 seconds...")
                     await asyncio.sleep(10)
             
@@ -112,7 +143,10 @@ async def process_batch(media_map, channel_id):
     """Aggregates and updates posts for a batch of collected media."""
     for title, items in media_map.items():
         for item in items:
-            await MongoDB.add_media_entry(item, item['file_size'], item['msg_id'])
+            for episode_num in item['episodes']:
+                item_copy = item.copy()
+                item_copy['episode'] = episode_num
+                await MongoDB.add_media_entry(item_copy, item['file_size'], item['msg_id'])
         await update_or_create_post(title, channel_id)
 
 async def update_or_create_post(title, channel_id):
