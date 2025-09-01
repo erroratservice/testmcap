@@ -33,17 +33,18 @@ def parse_media_info(filename, caption=None):
     Intelligently parses and merges media info from both the filename and caption.
     """
     base_name, is_split = get_base_name(filename)
-    
+
     filename_info = extract_info_from_text(base_name)
     caption_info = extract_info_from_text(caption or "")
 
+    # If filename parsing completely fails, we can't proceed
     if not filename_info or not filename_info.get('type'):
-        return None 
+        return None
 
     final_quality = caption_info.get('quality', 'Unknown') if caption_info.get('quality', 'Unknown') != 'Unknown' else filename_info.get('quality', 'Unknown')
     final_codec = caption_info.get('codec', 'Unknown') if caption_info.get('codec', 'Unknown') != 'Unknown' else filename_info.get('codec', 'Unknown')
     final_encoder = caption_info.get('encoder', 'Unknown') if caption_info.get('encoder', 'Unknown') != 'Unknown' else filename_info.get('encoder', 'Unknown')
-    
+
     if filename_info['type'] == 'series':
         return {
             'title': filename_info['title'],
@@ -57,7 +58,7 @@ def parse_media_info(filename, caption=None):
             'base_name': base_name
         }
     elif filename_info['type'] == 'movie':
-         return {
+        return {
             'title': filename_info['title'],
             'year': filename_info['year'],
             'quality': final_quality,
@@ -82,7 +83,7 @@ def extract_info_from_text(text):
         return None
 
     series_pattern = re.compile(
-        r'(.+?)[ ._\[\(-][sS](\d{1,2})[ ._]?[eE](\d{1,3})(?:-[eE]?(\d{1,3}))?', 
+        r'(.+?)[ ._\[\(-][sS](\d{1,2})[ ._]?[eE](\d{1,3})(?:-[eE]?(\d{1,3}))?',
         re.IGNORECASE
     )
     movie_pattern = re.compile(r'(.+?)[ ._\[\(](\d{4})[ ._\]\)]', re.IGNORECASE)
@@ -90,7 +91,7 @@ def extract_info_from_text(text):
     series_match = series_pattern.search(text)
     movie_match = movie_pattern.search(text)
 
-    # If it has a season/episode marker, it's a series, even if a year is present.
+    # Heuristic: If it has a season/episode marker, it's a series.
     if series_match:
         title_part, season_str, start_ep_str, end_ep_str = series_match.groups()
         title = re.sub(r'[\._]', ' ', title_part).strip().title()
@@ -103,6 +104,7 @@ def extract_info_from_text(text):
             'encoder': get_encoder(text), 'type': 'series'
         }
 
+    # If no series match, check for a movie match.
     if movie_match:
         title, year = movie_match.groups()
         return {
@@ -111,7 +113,7 @@ def extract_info_from_text(text):
             'codec': get_codec(text), 'encoder': get_encoder(text),
             'type': 'movie'
         }
-    
+
     return None
 
 def get_quality(text):
