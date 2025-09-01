@@ -1,5 +1,5 @@
 """
-High-performance, concurrent MediaInfo processing module with increased download timeout.
+High-performance, concurrent MediaInfo processing module with enhanced error logging.
 """
 
 import asyncio
@@ -19,11 +19,10 @@ from bot.core.tasks import ACTIVE_TASKS
 LOGGER = logging.getLogger(__name__)
 
 # Configuration
-CHUNK_STEPS = [5]
+CHUNK_STEPS = [5] # Optimized to one chunk attempt
 FULL_DOWNLOAD_LIMIT = 200 * 1024 * 1024
 MEDIAINFO_TIMEOUT = 30
 FFPROBE_TIMEOUT = 60
-# --- MODIFIED: Increased download timeout ---
 DOWNLOAD_TIMEOUT = 1800  # 30 minutes
 
 async def updatemediainfo_handler(client, message):
