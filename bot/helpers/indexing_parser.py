@@ -38,25 +38,25 @@ IGNORED_TAGS = {
 def parse_media_info(filename, caption=None):
     """
     Intelligently parses and merges media info from both the filename and caption.
-    Handles episode ranges and split files.
     """
     base_name, is_split = get_base_name(filename)
     
     filename_info = extract_info_from_text(base_name)
     caption_info = extract_info_from_text(caption or "")
 
-    if not filename_info.get('episodes'):
+    # Essential structural information must come from the filename
+    if not filename_info.get('type'):
         return None 
 
     final_quality = caption_info['quality'] if caption_info['quality'] != 'Unknown' else filename_info['quality']
     final_codec = caption_info['codec'] if caption_info['codec'] != 'Unknown' else filename_info['codec']
     final_encoder = caption_info['encoder'] if caption_info['encoder'] != 'Unknown' else filename_info['encoder']
     
-    if filename_info['type'] == 'series':
+    if filename_info.get('type') == 'series':
         return {
             'title': filename_info['title'],
             'season': filename_info['season'],
-            'episodes': filename_info['episodes'],
+            'episodes': filename_info.get('episodes', []),
             'quality': final_quality,
             'codec': final_codec,
             'encoder': final_encoder,
@@ -64,12 +64,22 @@ def parse_media_info(filename, caption=None):
             'is_split': is_split,
             'base_name': base_name
         }
-    
+    elif filename_info.get('type') == 'movie':
+         return {
+            'title': filename_info['title'],
+            'year': filename_info['year'],
+            'quality': final_quality,
+            'codec': final_codec,
+            'encoder': final_encoder,
+            'type': 'movie',
+            'is_split': is_split,
+            'base_name': base_name
+        }
     return None
 
 def get_base_name(filename):
     """Identifies split files and returns their base name."""
-    match = re.search(r'(.+)\.(mkv|mp4|avi)\.(\d{3})$', filename, re.IGNORECASE)
+    match = re.search(r'^(.*)\.(mkv|mp4|avi|mov)\.(\d{3})$', filename, re.IGNORECASE)
     if match:
         return f"{match.group(1)}.{match.group(2)}", True
     return filename, False
@@ -77,34 +87,39 @@ def get_base_name(filename):
 def extract_info_from_text(text):
     """A helper function to parse a single string (filename or caption)."""
     if not text:
-        return {}
+        return {'quality': 'Unknown', 'codec': 'Unknown', 'encoder': 'Unknown'}
 
     series_pattern = re.compile(
-        r'(.+?)[ ._S](\d{1,2})[ ._E](\d{1,3})(?:-[Ee]?(\d{1,3}))?', 
+        r'(.+?)[ ._\[\(-][sS](\d{1,2})[ ._]?[eE](\d{1,3})(?:-[eE]?(\d{1,3}))?', 
         re.IGNORECASE
     )
+    movie_pattern = re.compile(r'(.+?)[ ._\[\(](\d{4})[ ._\]\)]', re.IGNORECASE)
 
     series_match = series_pattern.search(text)
     if series_match:
         title_part, season_str, start_ep_str, end_ep_str = series_match.groups()
-        
         title = re.sub(r'[\._]', ' ', title_part).strip().title()
-
         season = int(season_str)
         start_ep = int(start_ep_str)
         episodes = list(range(start_ep, int(end_ep_str) + 1)) if end_ep_str else [start_ep]
-
         return {
-            'title': title,
-            'season': season,
-            'episodes': episodes,
-            'quality': get_quality(text),
-            'codec': get_codec(text),
-            'encoder': get_encoder(text),
-            'type': 'series'
+            'title': title, 'season': season, 'episodes': episodes,
+            'quality': get_quality(text), 'codec': get_codec(text),
+            'encoder': get_encoder(text), 'type': 'series'
         }
 
-    return {}
+    movie_match = movie_pattern.search(text)
+    if movie_match:
+        title, year = movie_match.groups()
+        return {
+            'title': f"{title.replace('.', ' ').strip().title()} ({year})",
+            'year': int(year), 'quality': get_quality(text),
+            'codec': get_codec(text), 'encoder': get_encoder(text),
+            'type': 'movie'
+        }
+    
+    # --- MODIFIED: Return a dictionary with default values to prevent KeyErrors ---
+    return {'quality': 'Unknown', 'codec': 'Unknown', 'encoder': 'Unknown'}
 
 def get_quality(text):
     match = re.search(r'\b(4K|2160p|1080p|720p|576p|540p|480p)\b', text, re.IGNORECASE)
