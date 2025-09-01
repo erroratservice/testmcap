@@ -19,20 +19,20 @@ class MongoDB:
         try:
             cls.client = AsyncIOMotorClient(Config.DATABASE_URL)
             cls.db = cls.client.mediaindexbot
-            cls.task_collection = cls.db.mcapindexer
+            cls.task_collection = cls.db.mediamanager
             cls.media_collection = cls.db.media_data
             cls.message_ids_cache = cls.db.message_ids_cache
             await cls.client.admin.command('ismaster')
-            LOGGER.info("✅ MongoDB connected successfully.")
+            LOGGER.info("MongoDB connected successfully.")
         except Exception as e:
-            LOGGER.error(f"❌ MongoDB connection failed: {e}")
+            LOGGER.error(f"MongoDB connection failed: {e}")
             raise
     
     @classmethod
     async def close(cls):
         if cls.client is not None:
             cls.client.close()
-            LOGGER.info("✅ MongoDB connection closed.")
+            LOGGER.info("MongoDB connection closed.")
 
     @classmethod
     async def get_cached_message_ids(cls, channel_id):

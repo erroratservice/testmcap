@@ -20,18 +20,18 @@ LOGGER = logging.getLogger(__name__)
 
 async def start_handler(client, message):
     """Welcome message handler"""
-    welcome_text = """🤖 **Media Indexing Bot** *(Powered by Pyrofork)*
+    welcome_text = """***Media Manager Bot***
 
-🎯 **Purpose:** Extract MediaInfo and organize channel content
+**Purpose:** Extract MediaInfo and organize channel content
 
-📋 **Available Commands:**
+**Available Commands:**
 • `/updatemediainfo` - Enhance video captions with MediaInfo
 • `/indexfiles` - Create organized content indexes
 • `/status` - View processing progress
 • `/settings` - Set the destination channel for the index
 • `/help` - Detailed help
 
-🚀 **Ready to index your media content!**"""
+**Ready to index your media content!**"""
     
     await message.reply_text(welcome_text)
 
@@ -88,4 +88,4 @@ def register_handlers():
     for handler in callback_handlers:
         bot.add_handler(handler)
 
-    LOGGER.info("✅ All command and callback handlers registered successfully")
+    LOGGER.info("All command and callback handlers registered successfully")

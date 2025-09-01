@@ -42,20 +42,20 @@ class TgClient:
             
             await cls.bot.start()
             bot_info = await cls.bot.get_me()
-            LOGGER.info(f"✅ Bot client started as @{bot_info.username}")
+            LOGGER.info(f"Bot client started as @{bot_info.username}")
 
             await cls.user.start()
             user_info = await cls.user.get_me()
-            LOGGER.info(f"✅ User client started as @{user_info.username}")
+            LOGGER.info(f"User client started as @{user_info.username}")
             
         except AuthKeyDuplicated:
-            LOGGER.error("❌ Auth key duplicated. Please regenerate the user session string.")
+            LOGGER.error("Auth key duplicated. Please regenerate the user session string.")
             raise
         except UserDeactivated:
-            LOGGER.error("❌ User account is deactivated. Check the user session.")
+            LOGGER.error("User account is deactivated. Check the user session.")
             raise
         except Exception as e:
-            LOGGER.error(f"❌ Failed to initialize clients: {e}")
+            LOGGER.error(f"Failed to initialize clients: {e}")
             raise
     
     @classmethod
@@ -66,6 +66,6 @@ class TgClient:
                 await cls.bot.stop()
             if cls.user and cls.user.is_connected:
                 await cls.user.stop()
-            LOGGER.info("✅ All clients stopped gracefully.")
+            LOGGER.info("All clients stopped gracefully.")
         except Exception as e:
-            LOGGER.error(f"❌ Error stopping clients: {e}")
+            LOGGER.error(f"Error stopping clients: {e}")

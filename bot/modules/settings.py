@@ -15,7 +15,7 @@ async def settings_handler(client, message):
     try:
         current_id = Config.INDEX_CHANNEL_ID if Config.INDEX_CHANNEL_ID != 0 else "Not Set"
         
-        settings_text = (f"⚙️ **Bot Settings**\n\n"
+        settings_text = (f"**Bot Settings**\n\n"
                          f"Here you can manage the bot's configuration.\n\n"
                          f"**Current Index Channel ID:** `{current_id}`")
         
@@ -49,19 +49,19 @@ async def receive_channel_id_handler(client, message):
         
         # A simple check to ensure it looks like a channel ID
         if not new_id_text.startswith("-100"):
-            await send_message(message, "⚠️ **Invalid ID:** Channel IDs should be negative and usually start with `-100`. Please try again.")
+            await send_message(message, "**Invalid ID:** Channel IDs should be negative and usually start with `-100`. Please try again.")
             return
 
         # Update the config in memory
         Config.set('INDEX_CHANNEL_ID', new_id)
         
-        await send_message(message, f"✅ **Success!** Index Channel ID has been updated to `{new_id}`.")
+        await send_message(message, f"**Success!** Index Channel ID has been updated to `{new_id}`.")
         
     except ValueError:
-        await send_message(message, "❌ **Error:** That doesn't look like a valid number. Please send only the channel ID.")
+        await send_message(message, "**Error:** That doesn't look like a valid number. Please send only the channel ID.")
     except Exception as e:
         LOGGER.error(f"Error setting new channel ID: {e}")
-        await send_message(message, "❌ An unexpected error occurred. Please try again.")
+        await send_message(message, "An unexpected error occurred. Please try again.")
     finally:
         # Clean up the user's state
         if user_id in USER_STATES:

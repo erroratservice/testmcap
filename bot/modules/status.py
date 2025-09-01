@@ -15,12 +15,12 @@ async def trigger_status_creation(message):
     This function can be called by any command.
     """
     if MongoDB.db is None:
-        await send_message(message, "❌ Database is not connected. Status tracking is disabled.")
+        await send_message(message, "Database is not connected. Status tracking is disabled.")
         return
 
     old_status_message = await MongoDB.get_status_message()
 
-    initial_text = "📊 **Live Task Status**\n\nInitializing..."
+    initial_text = "**Live Task Status**\n\nInitializing..."
     new_status_message = await send_message(message, initial_text)
     
     if new_status_message:
@@ -35,7 +35,7 @@ async def trigger_status_creation(message):
             except Exception:
                 pass
     else:
-        await send_message(message, "❌ Could not create the status message.")
+        await send_message(message, "Could not create the status message.")
 
 async def status_handler(client, message):
     """Handler for /status command that creates the central status message."""
@@ -43,4 +43,4 @@ async def status_handler(client, message):
         await trigger_status_creation(message)
     except Exception as e:
         LOGGER.error(f"Status handler error: {e}")
-        await send_message(message, f"❌ Error creating status message: {e}")
+        await send_message(message, f"Error creating status message: {e}")

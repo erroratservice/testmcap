@@ -25,14 +25,14 @@ async def indexfiles_handler(client, message):
     """Handler for the /indexfiles command."""
     try:
         if MongoDB.db is None:
-            await send_message(message, "❌ **Error:** Database is not connected.")
+            await send_message(message, "**Error:** Database is not connected.")
             return
 
         is_force_rescan = '-rescan' in message.command
 
         channels = await get_target_channels(message)
         if not channels:
-            await send_message(message, "❌ **Usage:** `/indexfiles -100123... [-rescan]`")
+            await send_message(message, "**Usage:** `/indexfiles -100123... [-rescan]`")
             return
         
         channel_id = channels[0]
@@ -45,7 +45,7 @@ async def indexfiles_handler(client, message):
             
     except Exception as e:
         LOGGER.error(f"IndexFiles handler error: {e}")
-        await send_message(message, f"❌ **Error:** {e}")
+        await send_message(message, f"**Error:** {e}")
 
 async def create_channel_index(channel_id, message, scan_id, force=False):
     """The main indexing process using the new streaming and caching model."""
@@ -119,20 +119,20 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
             LOGGER.info(f"Batch complete. Waiting for 10 seconds before next batch...")
             await asyncio.sleep(10)
 
-        LOGGER.info(f"✅ Full indexing scan complete for channel {chat.title}.")
+        LOGGER.info(f"Full indexing scan complete for channel {chat.title}.")
         
-        summary_text = (f"✅ **Indexing Task Finished for {chat.title}**\n\n"
-                        f"- **Indexed Media:** {processed_messages_count - skipped_count - unparsable_count} items\n"
-                        f"- **Unparsable Files:** {unparsable_count} files\n"
-                        f"- **Skipped Non-Media:** {skipped_count} messages")
+        summary_text = (f"**Indexing Task Finished for {chat.title}**\n\n"
+                        f"- Indexed Media: {processed_messages_count - skipped_count - unparsable_count} items\n"
+                        f"- Unparsable Files: {unparsable_count} files\n"
+                        f"- Skipped Non-Media: {skipped_count} messages")
         await send_reply(message, summary_text)
 
     except asyncio.CancelledError:
         LOGGER.warning(f"Indexing task {scan_id} was cancelled by user.")
-        await send_reply(message, f"❌ Indexing for **{chat.title if chat else 'Unknown'}** was cancelled.")
+        await send_reply(message, f"Indexing for **{chat.title if chat else 'Unknown'}** was cancelled.")
     except Exception as e:
         LOGGER.error(f"Error during indexing for {channel_id}: {e}", exc_info=True)
-        await send_reply(message, f"❌ An error occurred during the index scan for channel {channel_id}.")
+        await send_reply(message, f"An error occurred during the index scan for channel {channel_id}.")
     finally:
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)

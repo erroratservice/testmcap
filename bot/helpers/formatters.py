@@ -31,7 +31,7 @@ def format_series_post(title, data, total_episodes_map):
                     if ep_range: details_parts.append(ep_range)
                 if not details_parts: continue
                 full_details_line = " | ".join(details_parts)
-                text += f"{prefix} **{quality_key}**: {full_details_line}\n"
+                text += f"{prefix} **{quality_key}** {full_details_line}\n"
     text += f"\nLast Updated: {datetime.now().strftime('%b %d, %Y %I:%M %p IST')}"
     return text
 

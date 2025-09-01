@@ -47,10 +47,10 @@ async def update_status_periodically():
                 continue
             was_active = is_active_now
 
-            text = "📊 **Live Task Status**\n\n"
+            text = "**Live Task Status**\n\n"
             buttons = []
             if not active_scans:
-                text += "✅ Bot is currently idle. No active tasks."
+                text += "Bot is currently idle. No active tasks."
             else:
                 for i, scan in enumerate(active_scans, 1):
                     operation = scan.get('operation', 'Processing').title()
@@ -64,7 +64,7 @@ async def update_status_periodically():
                     text += f"   `{bar}`\n"
                     text += f"   `Processed: {current} / {total}`\n\n"
                     
-                    buttons.append([InlineKeyboardButton(f"❌ Cancel Task #{i}", callback_data=f"cancel_{scan['_id']}")])
+                    buttons.append([InlineKeyboardButton(f"Cancel Task #{i}", callback_data=f"cancel_{scan['_id']}")])
 
             class DummyMessage:
                 def __init__(self, cid, mid):
@@ -85,7 +85,7 @@ async def check_and_notify_interrupted_scans():
     
     interrupted = await MongoDB.get_active_scans()
     if interrupted:
-        notification_text = "⚠️ **Bot Restarted with Interrupted Scans** ⚠️\n\nThe following scans were interrupted and did not complete:\n"
+        notification_text = "**Bot Restarted with Interrupted Scans**\n\nThe following scans were interrupted and did not complete:\n"
         for scan in interrupted:
             progress = f"{scan.get('processed_messages', 0)} / {scan.get('total_messages', 'N/A')}"
             notification_text += (
@@ -104,7 +104,7 @@ async def main():
     try:
         Config.load()
         Config.validate()
-        LOGGER.info("✅ Configuration loaded.")
+        LOGGER.info("Configuration loaded.")
         
         os.makedirs(Config.DOWNLOAD_DIR, exist_ok=True)
         
@@ -112,7 +112,7 @@ async def main():
             try:
                 await MongoDB.initialize()
             except Exception as e:
-                LOGGER.warning(f"⚠️ DB connection failed: {e}")
+                LOGGER.warning(f"DB connection failed: {e}")
         
         await TgClient.initialize()
         
@@ -121,16 +121,16 @@ async def main():
         register_handlers()
 
         asyncio.create_task(update_status_periodically())
-        LOGGER.info("✅ Started background status updater.")
+        LOGGER.info("Started background status updater.")
         
-        LOGGER.info("🚀 Media Indexing Bot started successfully!")
+        LOGGER.info("Media Indexing Bot started successfully!")
         
         await asyncio.Future()
         
     except KeyboardInterrupt:
-        LOGGER.info("👋 Bot stopped by user.")
+        LOGGER.info("Bot stopped by user.")
     except Exception as e:
-        LOGGER.error(f"💥 Startup failed: {e}")
+        LOGGER.error(f"Startup failed: {e}")
         raise
     finally:
         await TgClient.stop()
