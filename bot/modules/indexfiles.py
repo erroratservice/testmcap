@@ -101,9 +101,7 @@ async def create_channel_index(channel_id, message, scan_id):
                     total_size = sum(part.document.file_size for part in msg_group if part.document)
                     parsed['file_size'] = total_size
                     parsed['msg_id'] = first_msg.id
-                    # Use a generic 'collection_title' for movies, or the series title
-                    collection_title = parsed['title'] if parsed['type'] == 'series' else "Movie Collection"
-                    media_map[collection_title].append(parsed)
+                    media_map[parsed['title']].append(parsed)
                 else:
                     unparsable_count += 1
                     LOGGER.warning(f"Could not parse filename: {media.file_name}")
@@ -140,13 +138,7 @@ async def process_batch(media_map, channel_id):
     """Aggregates and updates posts for a batch of collected media."""
     for title, items in media_map.items():
         for item in items:
-            if item.get('type') == 'series':
-                for episode_num in item.get('episodes', []):
-                    item_copy = item.copy()
-                    item_copy['episode'] = episode_num
-                    await MongoDB.add_media_entry(item_copy, item['file_size'], item['msg_id'])
-            elif item.get('type') == 'movie':
-                await MongoDB.add_media_entry(item, item['file_size'], item['msg_id'])
+            await MongoDB.add_media_entry(item, item['file_size'], item['msg_id'])
         
         await update_or_create_post(title, channel_id)
 
@@ -158,7 +150,7 @@ async def update_or_create_post(title, channel_id):
         
         if not media_data: return
 
-        # Determine if we are formatting a series or a movie collection
+        # --- MODIFIED: Choose the correct formatter based on the data type ---
         if 'seasons' in media_data:
             is_complete = True
             if TOTAL_EPISODES_MAP.get(title):
@@ -168,8 +160,10 @@ async def update_or_create_post(title, channel_id):
                         break
             media_data['is_complete'] = is_complete
             post_text = format_series_post(title, media_data, TOTAL_EPISODES_MAP)
-        else:
+        elif 'versions' in media_data:
              post_text = format_movie_post(title, media_data)
+        else:
+            return # Don't post if the data is not in a recognized format
 
         if len(post_text) > 4096:
             post_text = post_text[:4090] + "\n..."
