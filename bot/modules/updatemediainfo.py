@@ -15,12 +15,12 @@ from bot.helpers.message_utils import send_message, send_reply
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
-from bot.helpers.channel_utils import get_history_for_processing # Import new helper
+from bot.helpers.channel_utils import get_history_for_processing
 
 LOGGER = logging.getLogger(__name__)
 
 # Configuration
-CHUNK_STEPS = [5] # Optimized to one chunk attempt
+CHUNK_STEPS = [5]
 FULL_DOWNLOAD_LIMIT = 200 * 1024 * 1024
 MEDIAINFO_TIMEOUT = 30
 FFPROBE_TIMEOUT = 60
@@ -33,7 +33,6 @@ async def updatemediainfo_handler(client, message):
             await send_message(message, "❌ **Error:** Database is not connected.")
             return
 
-        # Check for flags
         is_force_failed_run = '-f' in message.command
         is_force_rescan = '-rescan' in message.command
 
@@ -77,7 +76,6 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
     try:
         chat = await TgClient.user.get_chat(channel_id)
         
-        # --- MODIFIED: Use the new helper to get messages ---
         messages = await get_history_for_processing(channel_id, force=force)
         if not messages:
             await send_reply(message, f"✅ No new messages to process in **{chat.title}**.")
@@ -146,8 +144,6 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)
 
-# --- The rest of the file (from force_process_channel_concurrently onwards) remains unchanged ---
-# (Code truncated for brevity)
 async def force_process_channel_concurrently(channel_id, message, scan_id):
     """Concurrently processes only the failed message IDs stored in the database."""
     user_id = message.from_user.id
@@ -450,14 +446,21 @@ async def already_has_mediainfo(msg):
     return "Video:" in caption and "Audio:" in caption
 
 async def get_target_channels(message):
-    try:
-        # Filter out flags like -f and -rescan to find the channel ID
-        args = [arg for arg in message.command[1:] if not arg.startswith('-')]
-        if args:
-            channel_id = args[0]
-            if channel_id.startswith('-100'): return [int(channel_id)]
-            elif channel_id.isdigit(): return [int(f"-100{channel_id}")]
-            else: return [channel_id]
-        return []
-    except:
-        return []
+    """Correctly extracts the channel ID while ignoring known flags."""
+    # Define known flags to ignore
+    known_flags = ['-rescan', '-f']
+    
+    # Find the argument that is not a known flag
+    args = [arg for arg in message.command[1:] if arg not in known_flags]
+    
+    if args:
+        channel_id = args[0]
+        try:
+            if channel_id.startswith('-100'):
+                return [int(channel_id)]
+            elif channel_id.isdigit():
+                 return [int(f"-100{channel_id}")]
+        except (ValueError, IndexError):
+            pass
+
+    return []
