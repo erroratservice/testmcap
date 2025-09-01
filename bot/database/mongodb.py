@@ -12,6 +12,7 @@ class MongoDB:
     db = None
     task_collection = None
     media_collection = None
+    message_ids_cache = None # New cache collection
 
     @classmethod
     async def initialize(cls):
@@ -20,6 +21,7 @@ class MongoDB:
             cls.db = cls.client.mediaindexbot
             cls.task_collection = cls.db.mcapindexer
             cls.media_collection = cls.db.media_data
+            cls.message_ids_cache = cls.db.message_ids_cache # Initialize collection
             await cls.client.admin.command('ismaster')
             LOGGER.info("✅ MongoDB connected successfully.")
         except Exception as e:
@@ -32,6 +34,33 @@ class MongoDB:
             cls.client.close()
             LOGGER.info("✅ MongoDB connection closed.")
 
+    # --- NEW METHODS FOR MESSAGE ID CACHING ---
+    
+    @classmethod
+    async def get_cached_message_ids(cls, channel_id):
+        """Retrieves a list of cached message IDs for a given channel."""
+        if cls.message_ids_cache is None: return []
+        document = await cls.message_ids_cache.find_one({'_id': channel_id})
+        return document.get('message_ids', []) if document else []
+
+    @classmethod
+    async def update_cached_message_ids(cls, channel_id, new_ids):
+        """Adds new message IDs to the cache for a given channel."""
+        if cls.message_ids_cache is None: return
+        await cls.message_ids_cache.update_one(
+            {'_id': channel_id},
+            {'$addToSet': {'message_ids': {'$each': new_ids}}},
+            upsert=True
+        )
+
+    @classmethod
+    async def clear_cached_message_ids(cls, channel_id):
+        """Clears all cached message IDs for a given channel."""
+        if cls.message_ids_cache is None: return
+        await cls.message_ids_cache.delete_one({'_id': channel_id})
+
+
+    # --- EXISTING METHODS (truncated for brevity) ---
     @classmethod
     async def set_status_message(cls, chat_id, message_id):
         if cls.task_collection is None: return
