@@ -104,7 +104,6 @@ async def create_channel_index(channel_id, message, scan_id):
                     media_map[parsed['title']].append(parsed)
                 else:
                     unparsable_count += 1
-                    # --- MODIFIED: Log the filename that failed to parse ---
                     LOGGER.warning(f"Could not parse filename: {media.file_name}")
             
             if (i + 1) % BATCH_SIZE == 0 or (i + 1) == len(sorted_groups):
@@ -139,11 +138,19 @@ async def process_batch(media_map, channel_id):
     """Aggregates and updates posts for a batch of collected media."""
     for title, items in media_map.items():
         for item in items:
-            for episode_num in item['episodes']:
-                item_copy = item.copy()
-                item_copy['episode'] = episode_num
-                await MongoDB.add_media_entry(item_copy, item['file_size'], item['msg_id'])
-        await update_or_create_post(title, channel_id)
+            # --- MODIFIED: Handle movies and series separately ---
+            if item.get('type') == 'series':
+                for episode_num in item.get('episodes', []):
+                    item_copy = item.copy()
+                    item_copy['episode'] = episode_num
+                    await MongoDB.add_media_entry(item_copy, item['file_size'], item['msg_id'])
+            elif item.get('type') == 'movie':
+                # Handle movie entry (if specific logic is needed in the future)
+                pass # For now, we just need to avoid the crash
+        
+        # We only create posts for series in this version
+        if items and items[0].get('type') == 'series':
+            await update_or_create_post(title, channel_id)
 
 async def update_or_create_post(title, channel_id):
     """Fetches data and updates or creates a post for a given title."""
