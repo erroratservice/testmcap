@@ -20,15 +20,26 @@ def format_series_post(title, data, total_episodes_map):
             for i, (quality_key, quality_data) in enumerate(qualities.items()):
                 prefix = "└─" if i == len(qualities) - 1 else "├─"
                 
-                ep_list = sorted(quality_data.get('episodes', []))
-                ep_range = get_episode_range(ep_list)
-                
-                quality_parts = quality_key.split()
-                quality_line = f"**{quality_parts[0]} {quality_parts[1]}**"
-                if len(quality_parts) > 2 and quality_parts[2] != '(Unknown)':
-                    quality_line += f" {quality_parts[2]}"
+                episodes_by_encoder = quality_data.get('episodes_by_encoder', {})
+                if not episodes_by_encoder:
+                    continue
 
-                text += f"{prefix} {quality_line}: {ep_range}\n"
+                encoder_strings = []
+                # Sort encoders so that 'Unknown' always appears last
+                sorted_encoders = sorted(episodes_by_encoder.keys(), key=lambda x: (x == 'Unknown', x))
+
+                for encoder in sorted_encoders:
+                    ep_list = sorted(episodes_by_encoder.get(encoder, []))
+                    ep_range = get_episode_range(ep_list)
+                    
+                    if encoder != 'Unknown':
+                        encoder_strings.append(f"({encoder}): {ep_range}")
+                    else:
+                        # Don't add a label for the 'Unknown' encoder
+                        encoder_strings.append(ep_range)
+
+                full_details_line = " | ".join(encoder_strings)
+                text += f"{prefix} **{quality_key}**: {full_details_line}\n"
     
     text += f"\nLast Updated: {datetime.now().strftime('%b %d, %Y %I:%M %p IST')}"
     
