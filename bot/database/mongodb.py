@@ -70,7 +70,6 @@ class MongoDB:
             season, episode = parsed_data.get('season'), parsed_data.get('episode')
             quality, codec = parsed_data.get('quality', 'Unknown'), parsed_data.get('codec', 'Unknown')
             encoder = parsed_data.get('encoder', 'Unknown')
-            LOGGER.debug(f"DATABASE: Storing ep {episode} for '{title}' with encoder '{encoder}'.")
             quality_key = f"{quality} {codec}"
             update_query = {'$inc': {f'seasons.{season}.qualities.{quality_key}.size': file_size, 'total_size': file_size},
                             '$addToSet': {f'seasons.{season}.qualities.{quality_key}.episodes_by_encoder.{encoder}': episode,
