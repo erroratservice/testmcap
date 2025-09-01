@@ -13,9 +13,9 @@ def format_series_post(title, data, total_episodes_map):
     total_expected = 0
 
     if 'seasons' in data:
-        for season_num in sorted(data['seasons'].keys()):
-            season_data = data['seasons'][season_num]
-            # Use a default episode count if not in the map
+        for season_num_str in sorted(data['seasons'].keys()):
+            season_num = int(season_num_str)
+            season_data = data['seasons'][season_num_str]
             expected_eps = total_episodes_map.get(title, {}).get(season_num, len(season_data.get('episodes', [])))
             total_expected += expected_eps
             
@@ -29,18 +29,16 @@ def format_series_post(title, data, total_episodes_map):
                 
                 ep_range = get_episode_range(ep_list)
                 is_season_complete = len(ep_list) == expected_eps
-                status_icon = "✅ Complete" if is_season_complete else ""
+                status_icon = "✅" if is_season_complete else ""
                 
                 size_gb = quality_data.get('size', 0) / (1024**3)
                 
                 text += f"{prefix} 🎥 **{quality_key}**: {ep_range} {status_icon} ({size_gb:.1f}GB)\n"
     
-    # Calculate total found episodes from the aggregated data
     total_found = sum(len(season.get('episodes', [])) for season in data.get('seasons', {}).values())
 
     text += f"\n📈 **Series Total**: {total_found}/{total_expected} Episodes | {data.get('total_size', 0) / (1024**3):.1f}GB\n"
     
-    # Add hashtags
     hashtags = f"#{''.join(title.split())} #{'Complete' if data.get('is_complete', False) else 'Incomplete'}"
     text += hashtags
     
@@ -60,12 +58,3 @@ def get_episode_range(episodes):
             start = end = ep
     ranges.append(f"E{start:02d}" if start == end else f"E{start:02d}-E{end:02d}")
     return ', '.join(ranges)
-
-def get_missing_episodes(episodes, total_expected):
-    """Finds missing episode numbers in a sequence (no longer used in post)."""
-    expected = set(range(1, total_expected + 1))
-    found = set(episodes)
-    missing = sorted(list(expected - found))
-    if not missing:
-        return ""
-    return ', '.join([f"E{m:02d}" for m in missing[:3]]) + ("..." if len(missing) > 3 else "")
