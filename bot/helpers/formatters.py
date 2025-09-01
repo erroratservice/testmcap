@@ -32,6 +32,34 @@ def format_series_post(title, data, total_episodes_map):
     text += f"\nLast Updated: {datetime.now().strftime('%b %d, %Y %I:%M %p IST')}"
     
     return text
+def format_movie_post(title, data):
+    """Formats the final text for a movie collection post."""
+    text = f"**{title}**\n"
+    text += f"Last Updated: {datetime.now().strftime('%b %d, %Y %I:%M %p IST')}\n\n"
+    
+    total_size = 0
+    
+    # Group by year
+    movies_by_year = defaultdict(list)
+    for movie_data in data.get('movies', []):
+        movies_by_year[movie_data['year']].append(movie_data)
+
+    for year in sorted(movies_by_year.keys()):
+        for i, movie_data in enumerate(movies_by_year[year]):
+            prefix = "└─" if i == len(movies_by_year[year]) - 1 else "├─"
+            
+            quality_line = f"**{movie_data['quality']} {movie_data['codec']}**"
+            if movie_data['encoder'] != 'Unknown':
+                quality_line += f" ({movie_data['encoder']})"
+            
+            size_gb = movie_data.get('size', 0) / (1024**3)
+            total_size += movie_data.get('size', 0)
+            
+            text += f"{prefix} **{movie_data['title']} ({year})**: {quality_line} ({size_gb:.1f}GB)\n"
+
+    total_size_gb = total_size / (1024**3)
+    text += f"\n**Collection Total**: {len(data.get('movies', []))} Movies | {total_size_gb:.1f}GB"
+    return text
 
 def get_episode_range(episodes):
     """Converts a list of episode numbers into a compact range string."""
