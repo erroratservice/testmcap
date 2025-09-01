@@ -13,13 +13,13 @@ from bot.helpers.formatters import format_series_post, format_movie_post
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
-from bot.helpers.channel_utils import stream_history_for_processing # Import the new streaming helper
+from bot.helpers.channel_utils import stream_history_for_processing
 
 LOGGER = logging.getLogger(__name__)
 
 # Mock data for total episodes per season
 TOTAL_EPISODES_MAP = {}
-PROCESSING_BATCH_SIZE = 100 # Internal processing batch size
+PROCESSING_BATCH_SIZE = 100
 
 async def indexfiles_handler(client, message):
     """Handler for the /indexfiles command."""
@@ -55,6 +55,11 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
     try:
         chat = await TgClient.user.get_chat(channel_id)
         
+        # --- NEW: If force rescan is enabled, clear old data first ---
+        if force:
+            LOGGER.warning(f"Force rescan triggered for channel {channel_id}. Clearing old media data from the database.")
+            await MongoDB.clear_media_data_for_channel(channel_id)
+
         # Get total message count for the status updater
         total_messages = await TgClient.user.get_chat_history_count(chat_id=channel_id)
         await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "Indexing Scan")
@@ -64,12 +69,10 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
         skipped_count = 0
         processed_messages_count = 0
         
-        # Use the async generator to stream messages in batches
         async for message_batch in stream_history_for_processing(channel_id, force=force):
             if not message_batch:
                 continue
 
-            # Pre-process the batch to group split files
             base_name_map = {}
             for msg in message_batch:
                 media = msg.video or msg.document
@@ -89,7 +92,6 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
                 first_message = min(parts, key=lambda x: x.id)
                 message_groups[first_message.id] = parts
             
-            # Now, process the collected groups
             media_map = defaultdict(list)
             sorted_groups = sorted(message_groups.values(), key=lambda x: x[0].id)
 
@@ -108,12 +110,10 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
                         unparsable_count += 1
                 processed_messages_count += len(msg_group)
 
-            # Process the batch and update posts
             LOGGER.info(f"Processing batch of {len(media_map)} titles...")
             await process_batch(media_map, channel_id)
             message_groups.clear()
 
-            # Update the main progress counter
             await MongoDB.update_scan_progress(scan_id, processed_messages_count)
             
             LOGGER.info(f"Batch complete. Waiting for 10 seconds before next batch...")
