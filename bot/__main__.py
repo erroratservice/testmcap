@@ -11,7 +11,7 @@ if __name__ == '__main__':
     logging.basicConfig(
         format='[%(asctime)s] [%(levelname)s] - %(message)s',
         datefmt='%d-%b-%y %I:%M:%S %p',
-        level=logging.DEBUG  # Temporarily set to DEBUG to trace the issue
+        level=logging.INFO
     )
     
     # Reduce Pyrogram log noise
