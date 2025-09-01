@@ -24,26 +24,37 @@ def format_series_post(title, data, total_episodes_map):
                 if not episodes_by_encoder:
                     continue
 
-                all_details = []
+                # Build the details string with simple, explicit loops for maximum robustness
+                details_parts = []
                 
-                # Process known encoders first, sorted alphabetically
-                known_encoders = {enc: eps for enc, eps in episodes_by_encoder.items() if enc != 'Unknown'}
-                for encoder, ep_list in sorted(known_encoders.items()):
-                    ep_range = get_episode_range(sorted(ep_list))
-                    if ep_range:
-                        all_details.append(f"({encoder}): {ep_range}")
+                # First, build a list of known encoder names from the database
+                known_encoder_names = []
+                for encoder_name in episodes_by_encoder.keys():
+                    if encoder_name != 'Unknown':
+                        known_encoder_names.append(encoder_name)
+                
+                # Sort them alphabetically to ensure the output order is always the same
+                known_encoder_names.sort()
 
-                # Process the 'Unknown' encoder group if it exists, adding it to the end
+                # Process each known encoder
+                for encoder in known_encoder_names:
+                    ep_list = episodes_by_encoder[encoder]
+                    ep_range = get_episode_range(sorted(ep_list))
+                    if ep_range: # Only add if there are episodes
+                        details_parts.append(f"({encoder}): {ep_range}")
+
+                # Second, process the 'Unknown' encoder group if it exists
                 if 'Unknown' in episodes_by_encoder:
                     ep_list = episodes_by_encoder['Unknown']
                     ep_range = get_episode_range(sorted(ep_list))
-                    if ep_range:
-                        all_details.append(ep_range)
+                    if ep_range: # Only add if there are episodes
+                        details_parts.append(ep_range)
 
-                if not all_details:
+                if not details_parts:
                     continue
-                    
-                full_details_line = " | ".join(all_details)
+                
+                # Join all parts together into the final line
+                full_details_line = " | ".join(details_parts)
                 text += f"{prefix} **{quality_key}**: {full_details_line}\n"
     
     text += f"\nLast Updated: {datetime.now().strftime('%b %d, %Y %I:%M %p IST')}"
