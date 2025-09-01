@@ -41,9 +41,16 @@ def parse_media_info(filename, caption=None):
     if not filename_info or not filename_info.get('type'):
         return None
 
-    final_quality = caption_info.get('quality', 'Unknown') if caption_info.get('quality', 'Unknown') != 'Unknown' else filename_info.get('quality', 'Unknown')
-    final_codec = caption_info.get('codec', 'Unknown') if caption_info.get('codec', 'Unknown') != 'Unknown' else filename_info.get('codec', 'Unknown')
-    final_encoder = caption_info.get('encoder', 'Unknown') if caption_info.get('encoder', 'Unknown') != 'Unknown' else filename_info.get('encoder', 'Unknown')
+    # Prioritize caption info if it's valid, otherwise use filename info.
+    caption_quality = caption_info.get('quality', 'Unknown') if caption_info else 'Unknown'
+    final_quality = caption_quality if caption_quality != 'Unknown' else filename_info.get('quality', 'Unknown')
+
+    caption_codec = caption_info.get('codec', 'Unknown') if caption_info else 'Unknown'
+    final_codec = caption_codec if caption_codec != 'Unknown' else filename_info.get('codec', 'Unknown')
+
+    caption_encoder = caption_info.get('encoder', 'Unknown') if caption_info else 'Unknown'
+    final_encoder = caption_encoder if caption_encoder != 'Unknown' else filename_info.get('encoder', 'Unknown')
+
 
     if filename_info['type'] == 'series':
         return {
