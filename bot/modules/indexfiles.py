@@ -1,206 +1,152 @@
 """
-Advanced index files command with a batched processing system for movies and series.
+Advanced parser for media filenames and captions with improved movie/series detection.
 """
-import logging
-import asyncio
-from collections import defaultdict
-from bot.core.client import TgClient
-from bot.core.config import Config
-from bot.helpers.message_utils import send_message, send_reply
-from bot.helpers.file_utils import extract_channel_list
-from bot.helpers.indexing_parser import parse_media_info
-from bot.helpers.formatters import format_series_post, format_movie_post
-from bot.database.mongodb import MongoDB
-from bot.modules.status import trigger_status_creation
-from bot.core.tasks import ACTIVE_TASKS
+import re
 
-LOGGER = logging.getLogger(__name__)
+KNOWN_ENCODERS = {
+    'GHOST', 'AMBER', 'ELITE', 'BONE', 'CELDRA', 'MEGUSTA', 'EDGE2020',
+    'PAHE', 'DARKFLIX', 'D3G', 'PHOCIS', 'ZTR', 'TIPEX', 'PRIMEFIX',
+    'CODSWALLOP', 'RAWR', 'STAR', 'JFF', 'HEEL', 'CBFM', 'XWT', 'STC',
+    'KITSUNE', 'AFG', 'EDITH', 'MSD', 'SDH', 'AOC', 'G66', 'PSA',
+    'Tigole', 'QxR', 'TEPES', 'VXT', 'Vyndros', 'Telly', 'HQMUX',
+    'W4NK3R', 'BETA', 'BHDStudio', 'FraMeSToR', 'DON', 'DRONES', 'FGT',
+    'SPARKS', 'NoGroup', 'KiNGDOM', 'NTb', 'NTG', 'KOGi', 'SKG', 'EVO',
+    'iON10', 'mSD', 'CMRG', 'KiNGS', 'MiNX', 'FUM', 'GalaxyRG',
+    'GalaxyTV', 'EMBER', 'QOQ', 'BaoBao', 'YTS', 'YIFY', 'RARBG', 'ETRG',
+    'DHD', 'MkvCage', 'RARBGx', 'RGXT', 'TGx', 'SAiNT', 'DpR', 'KaKa',
+    'S4KK', 'D-Z0N3', 'PTer', 'BBL', 'BMF', 'FASM', 'SC4R', '4KiNGS',
+    'HDX', 'DEFLATE', 'TERMiNAL', 'PTP', 'ROKiT', 'SWTYBLZ', 'HOMELANDER',
+    'TombDoc', 'Walter', 'RZEROX'
+}
 
-# Mock data for total episodes per season
-TOTAL_EPISODES_MAP = {}
-BATCH_SIZE = 100
+IGNORED_TAGS = {
+    'WEB-DL', 'WEBDL', 'WEBRIP', 'WEB', 'BRRIP', 'BLURAY', 'BD', 'BDRIP',
+    'DVDRIP', 'DVD', 'HDTV', 'PDTV', 'SDTV', 'REMUX', 'UNTOUCHED',
+    'AMZN', 'NF', 'NETFLIX', 'HULU', 'ATVP', 'DSNP', 'MAX', 'CRAV', 'PCOCK',
+    'RTE', 'EZTV', 'ETTV', 'HDR', 'HDR10', 'DV', 'DOLBY', 'VISION', 'ATMOS',
+    'DTS', 'AAC', 'DDP', 'DDP2', 'DDP5', 'OPUS', 'AC3', '10BIT', 'UHD',
+    'PROPER', 'COMPLETE', 'FULL SERIES', 'INT', 'RIP', 'MULTI', 'GB', 'XVID'
+}
 
-async def indexfiles_handler(client, message):
-    """Handler for the /indexfiles command."""
-    try:
-        if MongoDB.db is None:
-            await send_message(message, "❌ **Error:** Database is not connected.")
-            return
+def parse_media_info(filename, caption=None):
+    """
+    Intelligently parses and merges media info from both the filename and caption.
+    """
+    base_name, is_split = get_base_name(filename)
 
-        channels = await get_target_channels(message)
-        if not channels:
-            await send_message(message, "❌ **Usage:** `/indexfiles -100123...`")
-            return
-        
-        channel_id = channels[0]
-        
-        await trigger_status_creation(message)
-        
-        scan_id = f"index_{channel_id}_{message.id}"
-        task = asyncio.create_task(create_channel_index(channel_id, message, scan_id))
-        ACTIVE_TASKS[scan_id] = task
-            
-    except Exception as e:
-        LOGGER.error(f"IndexFiles handler error: {e}")
-        await send_message(message, f"❌ **Error:** {e}")
+    filename_info = extract_info_from_text(base_name)
+    caption_info = extract_info_from_text(caption or "")
 
-async def create_channel_index(channel_id, message, scan_id):
-    """The main indexing process with split file handling."""
-    user_id = message.from_user.id
-    chat = None
+    # If filename parsing completely fails, we can't proceed
+    if not filename_info or not filename_info.get('type'):
+        return None
+
+    # Prioritize caption info if it's valid, otherwise use filename info.
+    caption_quality = caption_info.get('quality', 'Unknown') if caption_info else 'Unknown'
+    final_quality = caption_quality if caption_quality != 'Unknown' else filename_info.get('quality', 'Unknown')
+
+    caption_codec = caption_info.get('codec', 'Unknown') if caption_info else 'Unknown'
+    final_codec = caption_codec if caption_codec != 'Unknown' else filename_info.get('codec', 'Unknown')
+
+    caption_encoder = caption_info.get('encoder', 'Unknown') if caption_info else 'Unknown'
+    final_encoder = caption_encoder if caption_encoder != 'Unknown' else filename_info.get('encoder', 'Unknown')
+
+    if filename_info['type'] == 'series':
+        return {
+            'title': filename_info['title'],
+            'season': filename_info['season'],
+            'episodes': filename_info.get('episodes', []),
+            'quality': final_quality,
+            'codec': final_codec,
+            'encoder': final_encoder,
+            'type': 'series',
+            'is_split': is_split,
+            'base_name': base_name
+        }
+    elif filename_info['type'] == 'movie':
+        return {
+            'title': filename_info['title'],
+            'year': filename_info['year'],
+            'quality': final_quality,
+            'codec': final_codec,
+            'encoder': final_encoder,
+            'type': 'movie',
+            'is_split': is_split,
+            'base_name': base_name
+        }
+    return None
+
+def get_base_name(filename):
+    """Identifies split files and returns their base name."""
+    match = re.search(r'^(.*)\.(mkv|mp4|avi|mov)\.(\d{3})$', filename, re.IGNORECASE)
+    if match:
+        return f"{match.group(1)}.{match.group(2)}", True
+    return filename, False
+
+def extract_info_from_text(text):
+    """A helper function to parse a single string (filename or caption)."""
+    if not text:
+        return None
+
+    series_pattern = re.compile(
+        r'(.+?)[ ._\[\(-][sS](\d{1,2})[ ._]?[eE](\d{1,3})(?:-[eE]?(\d{1,3}))?',
+        re.IGNORECASE
+    )
+    movie_pattern = re.compile(r'(.+?)[ ._\[\(](\d{4})[ ._\]\)]', re.IGNORECASE)
+
+    series_match = series_pattern.search(text)
+    movie_match = movie_pattern.search(text)
+
+    # Heuristic: If it has a season/episode marker, it's a series.
+    if series_match:
+        title_part, season_str, start_ep_str, end_ep_str = series_match.groups()
+        title = re.sub(r'[\._]', ' ', title_part).strip().title()
+        season = int(season_str)
+        start_ep = int(start_ep_str)
+        episodes = list(range(start_ep, int(end_ep_str) + 1)) if end_ep_str else [start_ep]
+        return {
+            'title': title, 'season': season, 'episodes': episodes,
+            'quality': get_quality(text), 'codec': get_codec(text),
+            'encoder': get_encoder(text), 'type': 'series'
+        }
+
+    # If no series match, check for a movie match.
+    if movie_match:
+        title, year = movie_match.groups()
+        return {
+            'title': title.replace('.', ' ').strip().title(),
+            'year': int(year), 'quality': get_quality(text),
+            'codec': get_codec(text), 'encoder': get_encoder(text),
+            'type': 'movie'
+        }
+
+    return None
+
+def get_quality(text):
+    match = re.search(r'\b(4K|2160p|1080p|720p|576p|540p|480p)\b', text, re.IGNORECASE)
+    if match:
+        quality = match.group(1).upper()
+        return "4K" if "2160" in quality else quality
+    return 'Unknown'
+
+def get_codec(text):
+    if re.search(r'\b(AV1)\b', text, re.IGNORECASE): return 'AV1'
+    if re.search(r'\b(VP9)\b', text, re.IGNORECASE): return 'VP9'
+    if re.search(r'\b(HEVC|x265|H\s*265)\b', text, re.IGNORECASE): return 'X265'
+    if re.search(r'\b(AVC|x264|H\s*264)\b', text, re.IGNORECASE): return 'X264'
+    return 'Unknown'
+
+def get_encoder(text):
+    """Smarter encoder detection that filters out ignored tags."""
+    potential_tags = re.findall(r'\b([a-zA-Z0-9-]{2,})\b', text)
     
-    try:
-        chat = await TgClient.user.get_chat(channel_id)
-        
-        await MongoDB.start_scan(scan_id, channel_id, user_id, 0, chat.title, "Indexing Scan")
-        
-        history_generator = TgClient.user.get_chat_history(chat_id=channel_id)
-        messages = [msg async for msg in history_generator]
-        total_messages = len(messages)
-        
-        await MongoDB.update_scan_total(scan_id, total_messages)
-        
-        LOGGER.info(f"Pre-processing {total_messages} messages to group split files...")
-        
-        message_groups = defaultdict(list)
-        unparsable_count = 0
-        skipped_count = 0
-        
-        base_name_map = {}
-        for msg in messages:
-            media = msg.video or msg.document
-            if media and hasattr(media, 'file_name') and media.file_name:
-                # --- MODIFIED: Safely handle None from the parser ---
-                parsed_temp = parse_media_info(media.file_name)
-                if parsed_temp and parsed_temp.get('is_split'):
-                    base_name = parsed_temp['base_name']
-                    if base_name not in base_name_map:
-                        base_name_map[base_name] = []
-                    base_name_map[base_name].append(msg)
-                else:
-                    message_groups[msg.id] = [msg]
-            else:
-                skipped_count += 1
+    found_encoder = 'Unknown'
+    for tag in reversed(potential_tags):
+        tag_upper = tag.upper().replace('-', '')
+        if tag_upper in KNOWN_ENCODERS:
+            return tag_upper
+        if tag_upper not in IGNORED_TAGS and not tag_upper.isdigit():
+            if any(c.isalpha() for c in tag_upper):
+                found_encoder = tag_upper
 
-        for base_name, parts in base_name_map.items():
-            first_message = min(parts, key=lambda x: x.id)
-            message_groups[first_message.id] = parts
-
-        LOGGER.info(f"Finished grouping. Found {len(message_groups)} unique media items.")
-        
-        media_map = defaultdict(list)
-        
-        sorted_groups = sorted(message_groups.values(), key=lambda x: x[0].id)
-
-        for i, msg_group in enumerate(sorted_groups):
-            first_msg = msg_group[0]
-            media = first_msg.video or first_msg.document
-
-            if media and hasattr(media, 'file_name') and media.file_name:
-                parsed = parse_media_info(media.file_name, first_msg.caption)
-                if parsed:
-                    total_size = sum(part.document.file_size for part in msg_group if part.document)
-                    parsed['file_size'] = total_size
-                    parsed['msg_id'] = first_msg.id
-                    collection_title = parsed['title'] if parsed['type'] == 'series' else "Movie Collection"
-                    media_map[collection_title].append(parsed)
-                else:
-                    unparsable_count += 1
-                    LOGGER.warning(f"Could not parse filename: {media.file_name}")
-            
-            if (i + 1) % BATCH_SIZE == 0 or (i + 1) == len(sorted_groups):
-                LOGGER.info(f"Processing batch of {len(media_map)} titles...")
-                await process_batch(media_map, channel_id)
-                media_map.clear()
-                
-                if (i + 1) < len(sorted_groups):
-                    LOGGER.info(f"Batch complete. Waiting for 10 seconds...")
-                    await asyncio.sleep(10)
-            
-            await MongoDB.update_scan_progress(scan_id, i + 1)
-
-        LOGGER.info(f"✅ Full indexing scan complete for channel {chat.title}.")
-        
-        summary_text = (f"✅ **Indexing Task Finished for {chat.title}**\n\n"
-                        f"- **Unparsable Media:** {unparsable_count} files\n"
-                        f"- **Skipped Non-Media:** {skipped_count} messages")
-        await send_reply(message, summary_text)
-
-    except asyncio.CancelledError:
-        LOGGER.warning(f"Indexing task {scan_id} was cancelled by user.")
-        await send_reply(message, f"❌ Indexing for **{chat.title if chat else 'Unknown'}** was cancelled.")
-    except Exception as e:
-        LOGGER.error(f"Error during indexing for {channel_id}: {e}", exc_info=True)
-        await send_reply(message, f"❌ An error occurred during the index scan for channel {channel_id}.")
-    finally:
-        await MongoDB.end_scan(scan_id)
-        ACTIVE_TASKS.pop(scan_id, None)
-
-async def process_batch(media_map, channel_id):
-    """Aggregates and updates posts for a batch of collected media."""
-    for title, items in media_map.items():
-        for item in items:
-            # --- MODIFIED: Correctly handle both series and movies to prevent KeyError ---
-            if item.get('type') == 'series':
-                for episode_num in item.get('episodes', []):
-                    item_copy = item.copy()
-                    item_copy['episode'] = episode_num
-                    await MongoDB.add_media_entry(item_copy, item['file_size'], item['msg_id'])
-            elif item.get('type') == 'movie':
-                await MongoDB.add_media_entry(item, item['file_size'], item['msg_id'])
-        
-        await update_or_create_post(title, channel_id)
-
-async def update_or_create_post(title, channel_id):
-    """Fetches data and updates or creates a post for a given title."""
-    try:
-        post_doc = await MongoDB.get_or_create_post(title, channel_id)
-        media_data = await MongoDB.get_media_data(title)
-        
-        if not media_data: return
-
-        if 'seasons' in media_data:
-            is_complete = True
-            if TOTAL_EPISODES_MAP.get(title):
-                for season, expected_eps in TOTAL_EPISODES_MAP[title].items():
-                    if len(media_data.get('seasons', {}).get(str(season), {}).get('episodes', [])) != expected_eps:
-                        is_complete = False
-                        break
-            media_data['is_complete'] = is_complete
-            post_text = format_series_post(title, media_data, TOTAL_EPISODES_MAP)
-        elif 'versions' in media_data:
-             post_text = format_movie_post(title, media_data)
-        else:
-            return
-
-        if len(post_text) > 4096:
-            post_text = post_text[:4090] + "\n..."
-
-        message_id = post_doc.get('message_id')
-        
-        if message_id:
-            try:
-                await TgClient.user.edit_message_text(Config.INDEX_CHANNEL_ID, message_id, post_text)
-                LOGGER.info(f"Updated post for '{title}'.")
-                return
-            except Exception:
-                pass
-        
-        new_post = await TgClient.user.send_message(Config.INDEX_CHANNEL_ID, post_text)
-        if new_post:
-            await MongoDB.update_post_message_id(post_doc['_id'], new_post.id)
-            LOGGER.info(f"Created new post for '{title}'.")
-
-    except Exception as e:
-        LOGGER.error(f"Failed to update post for '{title}': {e}")
-
-
-async def get_target_channels(message):
-    if message.reply_to_message and message.reply_to_message.document:
-        return await extract_channel_list(message.reply_to_message)
-    elif len(message.command) > 1:
-        try:
-            return [int(message.command[1])]
-        except ValueError:
-            return []
-    return []
+    return found_encoder
