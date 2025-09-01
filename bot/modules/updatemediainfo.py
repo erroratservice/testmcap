@@ -15,6 +15,7 @@ from bot.helpers.message_utils import send_message, send_reply
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
+from bot.helpers.channel_utils import get_history_for_processing # Import new helper
 
 LOGGER = logging.getLogger(__name__)
 
@@ -32,26 +33,28 @@ async def updatemediainfo_handler(client, message):
             await send_message(message, "❌ **Error:** Database is not connected.")
             return
 
-        is_force_run = len(message.command) > 2 and message.command[2] == '-f'
-        
+        # Check for flags
+        is_force_failed_run = '-f' in message.command
+        is_force_rescan = '-rescan' in message.command
+
         channels = await get_target_channels(message)
         if not channels:
-            await send_message(message, "❌ **Usage:** `/updatemediainfo -100123... [-f]`")
+            await send_message(message, "❌ **Usage:** `/updatemediainfo -100123... [-f | -rescan]`")
             return
 
         channel_id = channels[0]
         
         await trigger_status_creation(message)
 
-        if is_force_run:
-            LOGGER.info(f"🚀 Starting CONCURRENT FORCE processing for channel {channel_id}")
+        if is_force_failed_run:
+            LOGGER.info(f"🚀 Starting CONCURRENT FAILED ID processing for channel {channel_id}")
             scan_id = f"force_scan_{channel_id}_{message.id}"
             task = asyncio.create_task(force_process_channel_concurrently(channel_id, message, scan_id))
             ACTIVE_TASKS[scan_id] = task
         else:
-            LOGGER.info(f"🚀 Starting CONCURRENT standard scan for channel {channel_id}")
+            LOGGER.info(f"🚀 Starting CONCURRENT standard scan for channel {channel_id}. Rescan: {is_force_rescan}")
             scan_id = f"scan_{channel_id}_{message.id}"
-            task = asyncio.create_task(process_channel_concurrently(channel_id, message, scan_id))
+            task = asyncio.create_task(process_channel_concurrently(channel_id, message, scan_id, force=is_force_rescan))
             ACTIVE_TASKS[scan_id] = task
             
     except Exception as e:
@@ -66,7 +69,7 @@ async def progress_updater(scan_id, stats, stop_event):
         await MongoDB.update_scan_progress(scan_id, finished_count)
         await asyncio.sleep(10)
 
-async def process_channel_concurrently(channel_id, message, scan_id):
+async def process_channel_concurrently(channel_id, message, scan_id, force=False):
     """Processes a channel by running multiple file tasks at the same time."""
     user_id = message.from_user.id
     chat = None
@@ -74,8 +77,13 @@ async def process_channel_concurrently(channel_id, message, scan_id):
     try:
         chat = await TgClient.user.get_chat(channel_id)
         
-        history_generator = TgClient.user.get_chat_history(chat_id=channel_id)
-        messages = [msg async for msg in history_generator]
+        # --- MODIFIED: Use the new helper to get messages ---
+        messages = await get_history_for_processing(channel_id, force=force)
+        if not messages:
+            await send_reply(message, f"✅ No new messages to process in **{chat.title}**.")
+            ACTIVE_TASKS.pop(scan_id, None)
+            return
+            
         total_messages = len(messages)
         
         await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "MediaInfo Scan")
@@ -138,6 +146,8 @@ async def process_channel_concurrently(channel_id, message, scan_id):
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)
 
+# --- The rest of the file (from force_process_channel_concurrently onwards) remains unchanged ---
+# (Code truncated for brevity)
 async def force_process_channel_concurrently(channel_id, message, scan_id):
     """Concurrently processes only the failed message IDs stored in the database."""
     user_id = message.from_user.id
@@ -441,8 +451,10 @@ async def already_has_mediainfo(msg):
 
 async def get_target_channels(message):
     try:
-        if len(message.command) > 1:
-            channel_id = message.command[1]
+        # Filter out flags like -f and -rescan to find the channel ID
+        args = [arg for arg in message.command[1:] if not arg.startswith('-')]
+        if args:
+            channel_id = args[0]
             if channel_id.startswith('-100'): return [int(channel_id)]
             elif channel_id.isdigit(): return [int(f"-100{channel_id}")]
             else: return [channel_id]
