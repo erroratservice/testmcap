@@ -1,10 +1,9 @@
 """
-Advanced parser for media filenames and captions with intelligent data merging and tag filtering.
+Advanced parser for media filenames and captions with improved movie/series detection.
 """
 import re
 
 KNOWN_ENCODERS = {
-    # From user list
     'GHOST', 'AMBER', 'ELITE', 'BONE', 'CELDRA', 'MEGUSTA', 'EDGE2020',
     'PAHE', 'DARKFLIX', 'D3G', 'PHOCIS', 'ZTR', 'TIPEX', 'PRIMEFIX',
     'CODSWALLOP', 'RAWR', 'STAR', 'JFF', 'HEEL', 'CBFM', 'XWT', 'STC',
@@ -21,17 +20,11 @@ KNOWN_ENCODERS = {
 }
 
 IGNORED_TAGS = {
-    # Sources
     'WEB-DL', 'WEBDL', 'WEBRIP', 'WEB', 'BRRIP', 'BLURAY', 'BD', 'BDRIP',
     'DVDRIP', 'DVD', 'HDTV', 'PDTV', 'SDTV', 'REMUX', 'UNTOUCHED',
     'AMZN', 'NF', 'NETFLIX', 'HULU', 'ATVP', 'DSNP', 'MAX', 'CRAV', 'PCOCK',
-    'RTE', 'EZTV', 'ETTV',
-
-    # Audio/Video Capabilities
-    'HDR', 'HDR10', 'DV', 'DOLBY', 'VISION', 'ATMOS', 'DTS', 'AAC',
-    'DDP', 'DDP2', 'DDP5', 'OPUS', 'AC3', '10BIT', 'UHD',
-    
-    # Common Junk
+    'RTE', 'EZTV', 'ETTV', 'HDR', 'HDR10', 'DV', 'DOLBY', 'VISION', 'ATMOS', 
+    'DTS', 'AAC', 'DDP', 'DDP2', 'DDP5', 'OPUS', 'AC3', '10BIT', 'UHD',
     'PROPER', 'COMPLETE', 'FULL SERIES', 'INT', 'RIP', 'MULTI', 'GB', 'XVID'
 }
 
@@ -44,15 +37,16 @@ def parse_media_info(filename, caption=None):
     filename_info = extract_info_from_text(base_name)
     caption_info = extract_info_from_text(caption or "")
 
-    # Essential structural information must come from the filename
+    # If filename parsing fails, we can't proceed
     if not filename_info.get('type'):
         return None 
 
-    final_quality = caption_info['quality'] if caption_info['quality'] != 'Unknown' else filename_info['quality']
-    final_codec = caption_info['codec'] if caption_info['codec'] != 'Unknown' else filename_info['codec']
-    final_encoder = caption_info['encoder'] if caption_info['encoder'] != 'Unknown' else filename_info['encoder']
+    final_quality = caption_info.get('quality', 'Unknown') if caption_info.get('quality', 'Unknown') != 'Unknown' else filename_info.get('quality', 'Unknown')
+    final_codec = caption_info.get('codec', 'Unknown') if caption_info.get('codec', 'Unknown') != 'Unknown' else filename_info.get('codec', 'Unknown')
+    final_encoder = caption_info.get('encoder', 'Unknown') if caption_info.get('encoder', 'Unknown') != 'Unknown' else filename_info.get('encoder', 'Unknown')
     
-    if filename_info.get('type') == 'series':
+    # Return a consistent data structure for both movies and series
+    if filename_info['type'] == 'series':
         return {
             'title': filename_info['title'],
             'season': filename_info['season'],
@@ -64,7 +58,7 @@ def parse_media_info(filename, caption=None):
             'is_split': is_split,
             'base_name': base_name
         }
-    elif filename_info.get('type') == 'movie':
+    elif filename_info['type'] == 'movie':
          return {
             'title': filename_info['title'],
             'year': filename_info['year'],
@@ -87,16 +81,25 @@ def get_base_name(filename):
 def extract_info_from_text(text):
     """A helper function to parse a single string (filename or caption)."""
     if not text:
-        return {'quality': 'Unknown', 'codec': 'Unknown', 'encoder': 'Unknown'}
+        return {}
 
     series_pattern = re.compile(
         r'(.+?)[ ._\[\(-][sS](\d{1,2})[ ._]?[eE](\d{1,3})(?:-[eE]?(\d{1,3}))?', 
         re.IGNORECASE
     )
+    # This movie pattern is more specific, looking for a year in parentheses
     movie_pattern = re.compile(r'(.+?)[ ._\[\(](\d{4})[ ._\]\)]', re.IGNORECASE)
 
     series_match = series_pattern.search(text)
-    if series_match:
+    movie_match = movie_pattern.search(text)
+
+    # Heuristic: If it has both patterns, decide which is more likely
+    if series_match and movie_match:
+        # If the year is part of the show title (e.g., "Show (2022) S01E01"), it's a series
+        if series_match.start() > movie_match.start():
+            movie_match = None
+
+    if series_match and not movie_match:
         title_part, season_str, start_ep_str, end_ep_str = series_match.groups()
         title = re.sub(r'[\._]', ' ', title_part).strip().title()
         season = int(season_str)
@@ -108,18 +111,16 @@ def extract_info_from_text(text):
             'encoder': get_encoder(text), 'type': 'series'
         }
 
-    movie_match = movie_pattern.search(text)
     if movie_match:
         title, year = movie_match.groups()
         return {
-            'title': f"{title.replace('.', ' ').strip().title()} ({year})",
+            'title': f"{title.replace('.', ' ').strip().title()}",
             'year': int(year), 'quality': get_quality(text),
             'codec': get_codec(text), 'encoder': get_encoder(text),
             'type': 'movie'
         }
     
-    # --- MODIFIED: Return a dictionary with default values to prevent KeyErrors ---
-    return {'quality': 'Unknown', 'codec': 'Unknown', 'encoder': 'Unknown'}
+    return {}
 
 def get_quality(text):
     match = re.search(r'\b(4K|2160p|1080p|720p|576p|540p|480p)\b', text, re.IGNORECASE)
@@ -129,10 +130,10 @@ def get_quality(text):
     return 'Unknown'
 
 def get_codec(text):
-    if re.search(r'\b(AV1)\b', text, re.IGNORECASE) and 'AV1' not in IGNORED_TAGS: return 'AV1'
-    if re.search(r'\b(VP9)\b', text, re.IGNORECASE) and 'VP9' not in IGNORED_TAGS: return 'VP9'
-    if re.search(r'\b(HEVC|x265|H\s*265)\b', text, re.IGNORECASE) and 'X265' not in IGNORED_TAGS: return 'X265'
-    if re.search(r'\b(AVC|x264|H\s*264)\b', text, re.IGNORECASE) and 'X264' not in IGNORED_TAGS: return 'X264'
+    if re.search(r'\b(AV1)\b', text, re.IGNORECASE): return 'AV1'
+    if re.search(r'\b(VP9)\b', text, re.IGNORECASE): return 'VP9'
+    if re.search(r'\b(HEVC|x265|H\s*265)\b', text, re.IGNORECASE): return 'X265'
+    if re.search(r'\b(AVC|x264|H\s*264)\b', text, re.IGNORECASE): return 'X264'
     return 'Unknown'
 
 def get_encoder(text):
