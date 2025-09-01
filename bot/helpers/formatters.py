@@ -25,19 +25,20 @@ def format_series_post(title, data, total_episodes_map):
                     continue
 
                 encoder_strings = []
-                # Sort encoders so that 'Unknown' always appears last
+                # Sort encoders so that 'Unknown' always appears last, making the output consistent
                 sorted_encoders = sorted(episodes_by_encoder.keys(), key=lambda x: (x == 'Unknown', x))
 
                 for encoder in sorted_encoders:
                     ep_list = sorted(episodes_by_encoder.get(encoder, []))
                     ep_range = get_episode_range(ep_list)
                     
+                    # Add the (ENCODER): prefix only if the encoder is known
                     if encoder != 'Unknown':
                         encoder_strings.append(f"({encoder}): {ep_range}")
                     else:
-                        # Don't add a label for the 'Unknown' encoder
                         encoder_strings.append(ep_range)
 
+                # Join the different encoder groups with a separator
                 full_details_line = " | ".join(encoder_strings)
                 text += f"{prefix} **{quality_key}**: {full_details_line}\n"
     
@@ -66,7 +67,7 @@ def format_movie_post(title, data):
 
 def get_episode_range(episodes):
     """Converts a list of episode numbers into a compact range string."""
-    if not episodes: return "No episodes found"
+    if not episodes: return ""
     episodes = sorted(list(set(episodes)))
     ranges = []
     start = end = episodes[0]
