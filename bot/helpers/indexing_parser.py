@@ -138,16 +138,29 @@ def get_codec(text):
     return 'Unknown'
 
 def get_encoder(text):
-    """Smarter encoder detection that filters out ignored tags."""
-    potential_tags = re.findall(r'\b([a-zA-Z0-9-]{2,})\b', text)
+    """Smarter encoder detection that properly splits tags."""
+    # Split the text by common delimiters to get individual tags
+    potential_tags = re.split(r'[ ._\[\]()\-]+', text)
     
     found_encoder = 'Unknown'
+    # Iterate from the end of the filename backwards
     for tag in reversed(potential_tags):
-        tag_upper = tag.upper().replace('-', '')
+        if not tag:  # Skip empty strings that can result from splitting
+            continue
+            
+        tag_upper = tag.upper()
+        
+        # If it's a known encoder, we're done.
         if tag_upper in KNOWN_ENCODERS:
             return tag_upper
+            
+        # Otherwise, check if it's a potential encoder (and not an ignored tag)
         if tag_upper not in IGNORED_TAGS and not tag_upper.isdigit():
             if any(c.isalpha() for c in tag_upper):
+                # Don't overwrite a potential encoder with parts of the series title
+                # A simple heuristic: if it contains season/episode markers, stop.
+                if re.search(r'S\d{1,2}E\d{1,3}', tag_upper):
+                    break
                 found_encoder = tag_upper
-
+                
     return found_encoder
