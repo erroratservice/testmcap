@@ -17,11 +17,7 @@ from bot.core.tasks import ACTIVE_TASKS
 LOGGER = logging.getLogger(__name__)
 
 # Mock data for total episodes per season
-TOTAL_EPISODES_MAP = {
-    "Breaking Bad": {1: 7, 2: 13, 3: 13, 4: 13, 5: 16},
-    "Game of Thrones": {1: 10, 2: 10, 3: 10, 4: 10, 5: 10, 6: 10, 7: 7, 8: 6},
-    "Byker Grove": {5: 20}
-}
+TOTAL_EPISODES_MAP = {}
 BATCH_SIZE = 100
 
 async def indexfiles_handler(client, message):
@@ -56,13 +52,14 @@ async def create_channel_index(channel_id, message, scan_id):
     try:
         chat = await TgClient.user.get_chat(channel_id)
         
+        await MongoDB.start_scan(scan_id, channel_id, user_id, 0, chat.title, "Indexing Scan")
+        
         history_generator = TgClient.user.get_chat_history(chat_id=channel_id)
         messages = [msg async for msg in history_generator]
         total_messages = len(messages)
         
-        await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "Indexing Scan")
+        await MongoDB.update_scan_total(scan_id, total_messages)
         
-        # --- PHASE 1: Pre-process messages to group split files ---
         LOGGER.info(f"Pre-processing {total_messages} messages to group split files...")
         
         message_groups = defaultdict(list)
@@ -90,7 +87,6 @@ async def create_channel_index(channel_id, message, scan_id):
 
         LOGGER.info(f"Finished grouping. Found {len(message_groups)} unique media items.")
         
-        # --- PHASE 2: Scan and update in batches ---
         media_map = defaultdict(list)
         
         sorted_groups = sorted(message_groups.values(), key=lambda x: x[0].id)
@@ -108,6 +104,8 @@ async def create_channel_index(channel_id, message, scan_id):
                     media_map[parsed['title']].append(parsed)
                 else:
                     unparsable_count += 1
+                    # --- MODIFIED: Log the filename that failed to parse ---
+                    LOGGER.warning(f"Could not parse filename: {media.file_name}")
             
             if (i + 1) % BATCH_SIZE == 0 or (i + 1) == len(sorted_groups):
                 LOGGER.info(f"Processing batch of {len(media_map)} titles...")
@@ -131,7 +129,7 @@ async def create_channel_index(channel_id, message, scan_id):
         LOGGER.warning(f"Indexing task {scan_id} was cancelled by user.")
         await send_reply(message, f"❌ Indexing for **{chat.title if chat else 'Unknown'}** was cancelled.")
     except Exception as e:
-        LOGGER.error(f"Error during indexing for {channel_id}: {e}")
+        LOGGER.error(f"Error during indexing for {channel_id}: {e}", exc_info=True)
         await send_reply(message, f"❌ An error occurred during the index scan for channel {channel_id}.")
     finally:
         await MongoDB.end_scan(scan_id)
