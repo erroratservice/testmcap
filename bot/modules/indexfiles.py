@@ -54,7 +54,6 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
     chat = None
     
     try:
-        # --- MODIFIED: Add error handling for invalid channel IDs ---
         try:
             chat = await TgClient.user.get_chat(channel_id)
         except PeerIdInvalid:
@@ -107,13 +106,13 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
                 if media and hasattr(media, 'file_name') and media.file_name:
                     parsed = parse_media_info(media.file_name, first_msg.caption)
                     
-                    # --- MODIFIED: Add a check to prevent crashes on unparsable files ---
-                    if parsed and 'type' in parsed:
+                    if parsed and 'type' in parsed and 'canonical_title' in parsed:
                         total_size = sum(part.document.file_size for part in msg_group if part.document)
                         parsed['file_size'] = total_size
                         parsed['msg_id'] = first_msg.id
-                        collection_title = parsed['title'] if parsed['type'] == 'series' else "Movie Collection"
-                        media_map[collection_title].append(parsed)
+                        # THIS IS THE FIX: Group by the normalized canonical_title
+                        collection_key = parsed['canonical_title']
+                        media_map[collection_key].append(parsed)
                     else:
                         unparsable_count += 1
                         LOGGER.warning(f"Could not parse type for filename: {media.file_name}")
@@ -149,7 +148,10 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
 
 async def process_batch(media_map, channel_id):
     """Aggregates and updates posts for a batch of collected media."""
-    for title, items in media_map.items():
+    for canonical_title, items in media_map.items():
+        # Use the title from the first item for display purposes
+        display_title = items[0]['title'] if items else canonical_title
+        
         for item in items:
             if item.get('type') == 'series':
                 for episode_num in item.get('episodes', []):
@@ -159,27 +161,20 @@ async def process_batch(media_map, channel_id):
             elif item.get('type') == 'movie':
                 await MongoDB.add_media_entry(item, item['file_size'], item['msg_id'])
         
-        await update_or_create_post(title, channel_id)
+        await update_or_create_post(canonical_title, display_title, channel_id)
 
-async def update_or_create_post(title, channel_id):
+async def update_or_create_post(canonical_title, display_title, channel_id):
     """Fetches data and updates or creates a post for a given title."""
     try:
-        post_doc = await MongoDB.get_or_create_post(title, channel_id)
-        media_data = await MongoDB.get_media_data(title)
+        post_doc = await MongoDB.get_or_create_post(canonical_title, display_title, channel_id)
+        media_data = await MongoDB.get_media_data(canonical_title)
         
         if not media_data: return
 
         if 'seasons' in media_data:
-            is_complete = True
-            if TOTAL_EPISODES_MAP.get(title):
-                for season, expected_eps in TOTAL_EPISODES_MAP[title].items():
-                    if len(media_data.get('seasons', {}, {}).get(str(season), {}).get('episodes', [])) != expected_eps:
-                        is_complete = False
-                        break
-            media_data['is_complete'] = is_complete
-            post_text = format_series_post(title, media_data, TOTAL_EPISODES_MAP)
+            post_text = format_series_post(display_title, media_data, TOTAL_EPISODES_MAP)
         elif 'versions' in media_data:
-             post_text = format_movie_post(title, media_data)
+             post_text = format_movie_post(display_title, media_data)
         else:
             return
 
@@ -191,7 +186,7 @@ async def update_or_create_post(title, channel_id):
         if message_id:
             try:
                 await TgClient.user.edit_message_text(Config.INDEX_CHANNEL_ID, message_id, post_text)
-                LOGGER.info(f"Updated post for '{title}'.")
+                LOGGER.info(f"Updated post for '{display_title}'.")
                 return
             except Exception:
                 pass
@@ -199,11 +194,10 @@ async def update_or_create_post(title, channel_id):
         new_post = await TgClient.user.send_message(Config.INDEX_CHANNEL_ID, post_text)
         if new_post:
             await MongoDB.update_post_message_id(post_doc['_id'], new_post.id)
-            LOGGER.info(f"Created new post for '{title}'.")
+            LOGGER.info(f"Created new post for '{display_title}'.")
 
     except Exception as e:
-        LOGGER.error(f"Failed to update post for '{title}': {e}")
-
+        LOGGER.error(f"Failed to update post for '{display_title}': {e}")
 
 async def get_target_channels(message):
     """Correctly extracts the channel ID while ignoring known flags."""
