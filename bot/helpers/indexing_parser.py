@@ -55,9 +55,11 @@ def parse_media_info(filename, caption=None):
 
     final_info = filename_info.copy()
     
-    # --- Step 2: Merge Quality and Codec ---
-    final_info['quality'] = caption_info.get('quality', final_info.get('quality', 'Unknown'))
-    final_info['codec'] = caption_info.get('codec', final_info.get('codec', 'Unknown'))
+    # --- Step 2: Merge Quality and Codec (FIX APPLIED HERE) ---
+    # If caption_info is None, treat it as an empty dict to prevent errors
+    safe_caption_info = caption_info or {}
+    final_info['quality'] = safe_caption_info.get('quality', final_info.get('quality', 'Unknown'))
+    final_info['codec'] = safe_caption_info.get('codec', final_info.get('codec', 'Unknown'))
 
     # --- Step 3: TVMaze Enrichment and Cleaning ---
     episode_title_for_cleaning = None
@@ -91,7 +93,7 @@ def parse_media_info(filename, caption=None):
     
     # Get encoder from the cleaned filename first
     filename_encoder = get_encoder(text_for_encoder, show_title_for_cleaning)
-    caption_encoder = caption_info.get('encoder', 'Unknown') if caption_info else 'Unknown'
+    caption_encoder = safe_caption_info.get('encoder', 'Unknown')
     
     # Prioritize the filename's encoder. Use caption's only if filename's is unknown.
     final_info['encoder'] = filename_encoder if filename_encoder != 'Unknown' else caption_encoder
