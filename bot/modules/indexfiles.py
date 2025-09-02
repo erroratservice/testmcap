@@ -4,6 +4,7 @@ Advanced index files command with a batched processing system for movies and ser
 import logging
 import asyncio
 from collections import defaultdict
+from pyrogram.errors import PeerIdInvalid
 from bot.core.client import TgClient
 from bot.core.config import Config
 from bot.helpers.message_utils import send_message, send_reply
@@ -48,19 +49,24 @@ async def indexfiles_handler(client, message):
         await send_message(message, f"**Error:** {e}")
 
 async def create_channel_index(channel_id, message, scan_id, force=False):
-    """The main indexing process using the new streaming and caching model."""
+    """The main indexing process with split file handling."""
     user_id = message.from_user.id
     chat = None
     
     try:
-        chat = await TgClient.user.get_chat(channel_id)
-        
-        # --- NEW: If force rescan is enabled, clear old data first ---
+        # --- MODIFIED: Add error handling for invalid channel IDs ---
+        try:
+            chat = await TgClient.user.get_chat(channel_id)
+        except PeerIdInvalid:
+            await send_reply(message, f"**Error:** The Channel ID `{channel_id}` is invalid or I don't have access to it. Please check the ID and ensure my user account is a member of the channel.")
+            await MongoDB.end_scan(scan_id)
+            ACTIVE_TASKS.pop(scan_id, None)
+            return
+
         if force:
-            LOGGER.warning(f"Force rescan triggered for channel {channel_id}. Clearing old media data from the database.")
+            LOGGER.warning(f"Force rescan triggered for channel {channel_id}. Clearing old media data.")
             await MongoDB.clear_media_data_for_channel(channel_id)
 
-        # Get total message count for the status updater
         total_messages = await TgClient.user.get_chat_history_count(chat_id=channel_id)
         await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "Indexing Scan")
         
@@ -100,7 +106,9 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
                 media = first_msg.video or first_msg.document
                 if media and hasattr(media, 'file_name') and media.file_name:
                     parsed = parse_media_info(media.file_name, first_msg.caption)
-                    if parsed:
+                    
+                    # --- MODIFIED: Add a check to prevent crashes on unparsable files ---
+                    if parsed and 'type' in parsed:
                         total_size = sum(part.document.file_size for part in msg_group if part.document)
                         parsed['file_size'] = total_size
                         parsed['msg_id'] = first_msg.id
@@ -108,6 +116,8 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
                         media_map[collection_title].append(parsed)
                     else:
                         unparsable_count += 1
+                        LOGGER.warning(f"Could not parse type for filename: {media.file_name}")
+
                 processed_messages_count += len(msg_group)
 
             LOGGER.info(f"Processing batch of {len(media_map)} titles...")
