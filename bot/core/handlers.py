@@ -14,6 +14,8 @@ from bot.modules.indexfiles import indexfiles_handler
 from bot.modules.status import status_handler
 from bot.modules.settings import settings_handler, set_index_channel_callback, receive_channel_id_handler
 from bot.modules.help import help_handler
+# Import the new handlers
+from bot.modules.utils import log_handler, stats_handler
 from bot.core.tasks import ACTIVE_TASKS, USER_STATES
 
 LOGGER = logging.getLogger(__name__)
@@ -30,6 +32,8 @@ async def start_handler(client, message):
 • `/status` - View processing progress
 • `/settings` - Set the destination channel for the index
 • `/help` - Detailed help
+• `/log` - View recent bot logs
+• `/stats` - Check server resource usage
 
 **Ready to index your media content!**"""
     
@@ -72,6 +76,9 @@ def register_handlers():
         MessageHandler(status_handler, filters.command("status") & AuthFilters.authorized),
         MessageHandler(settings_handler, filters.command("settings") & AuthFilters.authorized),
         MessageHandler(help_handler, filters.command("help") & AuthFilters.authorized),
+        # Add the new handlers here
+        MessageHandler(log_handler, filters.command("log") & AuthFilters.authorized),
+        MessageHandler(stats_handler, filters.command("stats") & AuthFilters.authorized),
         # This handler will now only be triggered for messages from users in the correct state
         MessageHandler(receive_channel_id_handler, filters.create(awaiting_channel_id_filter) & AuthFilters.authorized & filters.private)
     ]
