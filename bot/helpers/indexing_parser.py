@@ -3,6 +3,7 @@ Advanced parser for media filenames and captions with improved movie/series dete
 """
 import re
 import logging
+from bot.helpers.tvmaze_utils import tvmaze_api
 
 LOGGER = logging.getLogger(__name__)
 
@@ -58,6 +59,19 @@ def parse_media_info(filename, caption=None):
     filename_encoder = filename_info.get('encoder', 'Unknown')
     caption_encoder = caption_info.get('encoder', 'Unknown') if caption_info else 'Unknown'
     final_info['encoder'] = caption_encoder if caption_encoder != 'Unknown' else filename_encoder
+
+    # TVMaze API Integration
+    if 'title' in final_info:
+        show_data = tvmaze_api.search_show(final_info['title'])
+        if show_data:
+            final_info['title'] = show_data['show']['name']
+            if not final_info.get('year') and show_data['show'].get('premiered'):
+                final_info['year'] = int(show_data['show']['premiered'][:4])
+            
+            # Refine encoder detection by removing words from the title
+            title_words = set(final_info['title'].upper().split())
+            if final_info['encoder'] in title_words:
+                final_info['encoder'] = 'Unknown'
 
     final_info['is_split'] = is_split
     final_info['base_name'] = base_name
