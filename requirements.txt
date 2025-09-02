@@ -12,3 +12,4 @@ natsort>=8.2.0
 pillow>=9.4.0
 tenacity>=8.2.2
 pymediainfo>=6.0.1
+pytvmaze>=2.0.8
