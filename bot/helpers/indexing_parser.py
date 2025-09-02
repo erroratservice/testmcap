@@ -55,8 +55,8 @@ def parse_media_info(filename, caption=None):
 
     final_info = filename_info.copy()
     
-    # --- Step 2: Merge Quality and Codec (FIX APPLIED HERE) ---
-    # If caption_info is None, treat it as an empty dict to prevent errors
+    # --- Step 2: Merge Quality and Codec ---
+    # FIX: If caption_info is None, treat it as an empty dict to prevent errors
     safe_caption_info = caption_info or {}
     final_info['quality'] = safe_caption_info.get('quality', final_info.get('quality', 'Unknown'))
     final_info['codec'] = safe_caption_info.get('codec', final_info.get('codec', 'Unknown'))
@@ -108,9 +108,21 @@ def parse_media_info(filename, caption=None):
     return final_info
 
 def get_base_name(filename):
-    match = re.search(r'^(.*)\.(mkv|mp4|avi|mov)\.(\d{3})$', filename, re.IGNORECASE)
-    if match:
-        return f"{match.group(1)}.{match.group(2)}", True
+    # Match format like .mkv.001, .mp4.002
+    match_ext_first = re.search(r'^(.*)\.(mkv|mp4|avi|mov)\.(\d{3})$', filename, re.IGNORECASE)
+    if match_ext_first:
+        return f"{match_ext_first.group(1)}.{match_ext_first.group(2)}", True
+        
+    # Match format like .001.mkv, .002.mp4
+    match_num_first = re.search(r'^(.*)\.(\d{3})\.(mkv|mp4|avi|mov)$', filename, re.IGNORECASE)
+    if match_num_first:
+        return f"{match_num_first.group(1)}.{match_num_first.group(3)}", True
+        
+    # Match format like ...part001.mkv, ...part002.mkv
+    match_part_num = re.search(r'^(.*)\.part(\d+)\.(mkv|mp4|avi|mov)$', filename, re.IGNORECASE)
+    if match_part_num:
+        return f"{match_part_num.group(1)}.{match_part_num.group(3)}", True
+        
     return filename, False
 
 def extract_info_from_text(text):
