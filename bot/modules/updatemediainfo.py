@@ -437,7 +437,8 @@ async def update_caption_clean(message, video_info, audio_tracks):
     try:
         current_caption = message.caption or ""
         
-        cleaned_caption = re.sub(r'\n\n(Video:.*\n?|Audio:.*)', '', current_caption).strip()
+        # More flexible regex to match "Video:" OR "Video -"
+        cleaned_caption = re.sub(r'\n\n(Video\s*[:\-].*\n?|Audio\s*[:\-].*)', '', current_caption, flags=re.IGNORECASE).strip()
         
         mediainfo_lines = []
         
@@ -494,7 +495,10 @@ async def has_media(msg):
 
 async def already_has_mediainfo(msg):
     caption = msg.caption or ""
-    return "Video:" in caption and "Audio:" in caption
+    # More flexible check for "Video:" OR "Video -"
+    video_present = re.search(r'Video\s*[:\-]', caption, re.IGNORECASE)
+    audio_present = re.search(r'Audio\s*[:\-]', caption, re.IGNORECASE)
+    return video_present and audio_present
 
 async def get_target_channels(message):
     """Correctly extracts the channel ID while ignoring known flags."""
