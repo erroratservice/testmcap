@@ -24,9 +24,9 @@ def format_bytes(byte_count):
 async def log_handler(client, message):
     """Handler for the /log command to show the bot's log."""
     try:
-        async with aiofiles.open('bot.log', 'r') as f:
+        async with aiofiles.open('log.txt', 'r') as f: # Changed from bot.log
             lines = await f.readlines()
-            last_lines = "".join(lines[-20:])  # Get the last 20 lines
+            last_lines = "".join(lines[-20:])
         
         if not last_lines:
             await send_reply(message, "Log file is empty.")
