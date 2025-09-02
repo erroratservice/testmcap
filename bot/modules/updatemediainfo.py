@@ -27,8 +27,8 @@ MEDIAINFO_TIMEOUT = 30
 FFPROBE_TIMEOUT = 60
 DOWNLOAD_TIMEOUT = 1800  # 30 minutes
 
-# Regex to detect split files like .mkv.001
-SPLIT_FILE_REGEX = re.compile(r'\.(mkv|mp4|avi|mov)\.\d{3}$', re.IGNORECASE)
+# Regex to detect split files like .mkv.001 OR .001.mkv
+SPLIT_FILE_REGEX = re.compile(r'(\.(mkv|mp4|avi|mov)\.\d{3}|\.\d{3}\.(mkv|mp4|avi|mov))$', re.IGNORECASE)
 
 async def updatemediainfo_handler(client, message):
     """Handler that initiates a concurrent scan."""
@@ -90,6 +90,9 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
         
         async def worker(msg):
             async with semaphore:
+                # FIX: Add a proactive delay to pace requests and avoid flood waits
+                await asyncio.sleep(1.5)
+
                 # FIX: Check for split files first and skip them
                 media = msg.video or msg.document
                 if media and hasattr(media, 'file_name') and media.file_name and SPLIT_FILE_REGEX.search(media.file_name):
@@ -176,6 +179,7 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
                 stats["skipped"] += 1
                 return
             async with semaphore:
+                await asyncio.sleep(1.5) # Also add delay to force scan
                 LOGGER.info(f"Force-processing media message {msg.id} in channel {channel_id}")
                 success, _ = await process_message_full_download_only(TgClient.user, msg)
                 if success:
@@ -221,8 +225,13 @@ async def process_message_full_download_only(client, message):
         temp_dir = "temp_mediainfo"
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
         temp_file = os.path.join(temp_dir, f"temp_{message.id}.tmp")
-
-        await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT)
+        
+        try:
+            await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT)
+        except FloodWait as e:
+            LOGGER.warning(f"FloodWait of {e.value} seconds on message {message.id}. Sleeping...")
+            await asyncio.sleep(e.value + 5)
+            await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT) # Retry download
         
         metadata = await extract_mediainfo_from_file(temp_file)
         video_info, audio_tracks = None, []
