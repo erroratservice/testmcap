@@ -386,10 +386,22 @@ def parse_essential_metadata(metadata):
         return None, []
 
 async def update_caption_clean(message, video_info, audio_tracks):
+    """
+    FIXED: Intelligently updates captions, adding only missing information
+    and cleaning old mediainfo sections.
+    """
     try:
         current_caption = message.caption or ""
+        
+        # --- FIX START ---
+        
+        # 1. Clean the old mediainfo section from the caption
+        # This regex removes the blank lines and the mediainfo lines
+        cleaned_caption = re.sub(r'\n\n(Video:.*\n?|Audio:.*)', '', current_caption).strip()
+        
         mediainfo_lines = []
         
+        # 2. Add video info if it's new
         if video_info and video_info.get("codec"):
             codec, height = video_info["codec"], video_info.get("height")
             quality = ""
@@ -401,21 +413,27 @@ async def update_caption_clean(message, video_info, audio_tracks):
             video_line = f"Video: {codec.upper()} {quality}".strip()
             mediainfo_lines.append(video_line)
         
+        # 3. Add audio info if it's new
         if audio_tracks:
             languages = sorted(list(set(t['language'] for t in audio_tracks if t['language'])))
             audio_line = f"Audio: {len(audio_tracks)}"
             if languages: audio_line += f" ({', '.join(languages)})"
             mediainfo_lines.append(audio_line)
         
-        if not mediainfo_lines: return False
+        if not mediainfo_lines: 
+            return False
         
+        # 4. Construct the new, clean caption
         mediainfo_section = "\n\n" + "\n".join(mediainfo_lines)
-        enhanced_caption = current_caption.strip() + mediainfo_section
+        enhanced_caption = cleaned_caption + mediainfo_section
+
+        # --- FIX END ---
         
         if len(enhanced_caption) > 1024:
             enhanced_caption = enhanced_caption[:1020] + "..."
         
-        if current_caption == enhanced_caption: return False
+        if current_caption == enhanced_caption: 
+            return False
         
         await TgClient.user.edit_message_caption(
             chat_id=message.chat.id, message_id=message.id, caption=enhanced_caption
