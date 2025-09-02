@@ -24,7 +24,7 @@ class MongoDB:
         try:
             # Asynchronous client for the main bot operations
             cls.client = AsyncIOMotorClient(Config.DATABASE_URL)
-            cls.db = cls.client.mediaindexbot
+            cls.db = cls.client.mediamanager
             cls.task_collection = cls.db.mediamanager
             cls.media_collection = cls.db.media_data
             cls.message_ids_cache = cls.db.message_ids_cache
