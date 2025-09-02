@@ -31,7 +31,7 @@ async def updatemediainfo_handler(client, message):
     """Handler that initiates a concurrent scan."""
     try:
         if MongoDB.db is None:
-            await send_message(message, "❌ **Error:** Database is not connected.")
+            await send_message(message, "**Error:** Database is not connected.")
             return
 
         is_force_failed_run = '-f' in message.command
@@ -39,7 +39,7 @@ async def updatemediainfo_handler(client, message):
 
         channels = await get_target_channels(message)
         if not channels:
-            await send_message(message, "❌ **Usage:** `/updatemediainfo -100123... [-f | -rescan]`")
+            await send_message(message, "**Usage:** `/updatemediainfo -100123... [-f | -rescan]`")
             return
 
         channel_id = channels[0]
@@ -47,19 +47,19 @@ async def updatemediainfo_handler(client, message):
         await trigger_status_creation(message)
 
         if is_force_failed_run:
-            LOGGER.info(f"🚀 Starting CONCURRENT FAILED ID processing for channel {channel_id}")
+            LOGGER.info(f"Starting CONCURRENT FAILED ID processing for channel {channel_id}")
             scan_id = f"force_scan_{channel_id}_{message.id}"
             task = asyncio.create_task(force_process_channel_concurrently(channel_id, message, scan_id))
             ACTIVE_TASKS[scan_id] = task
         else:
-            LOGGER.info(f"🚀 Starting CONCURRENT standard scan for channel {channel_id}. Rescan: {is_force_rescan}")
+            LOGGER.info(f"Starting CONCURRENT standard scan for channel {channel_id}. Rescan: {is_force_rescan}")
             scan_id = f"scan_{channel_id}_{message.id}"
             task = asyncio.create_task(process_channel_concurrently(channel_id, message, scan_id, force=is_force_rescan))
             ACTIVE_TASKS[scan_id] = task
             
     except Exception as e:
-        LOGGER.error(f"💥 Handler error in updatemediainfo: {e}")
-        await send_message(message, f"❌ **Error:** {e}")
+        LOGGER.error(f"Handler error in updatemediainfo: {e}")
+        await send_message(message, f"**Error:** {e}")
 
 
 async def progress_updater(scan_id, stats, stop_event):
@@ -91,7 +91,7 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
                     stats["skipped"] += 1
                     return
 
-                LOGGER.info(f"🎯 Processing media message {msg.id} in {chat.title}")
+                LOGGER.info(f"Processing media message {msg.id} in {chat.title}")
                 try:
                     success, _ = await process_message_enhanced(TgClient.user, msg)
                     if success:
@@ -122,19 +122,19 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
         if failed_ids_internal:
             await MongoDB.save_failed_ids(channel_id, failed_ids_internal)
         
-        summary_text = (f"✅ **Scan Complete: {chat.title}**\n\n"
-                        f"- **Updated:** {stats['processed']} files\n"
-                        f"- **Errors:** {stats['errors']} files\n"
-                        f"- **Skipped:** {stats['skipped']} messages")
+        summary_text = (f"**Scan Complete: {chat.title}**\n\n"
+                        f"- Updated: {stats['processed']} files\n"
+                        f"- Errors: {stats['errors']} files\n"
+                        f"- Skipped: {stats['skipped']} messages")
         await send_reply(message, summary_text)
-        LOGGER.info(f"✅ Scan complete for {chat.title}. Summary sent.")
+        LOGGER.info(f"Scan complete for {chat.title}. Summary sent.")
 
     except asyncio.CancelledError:
         LOGGER.warning(f"Scan task {scan_id} was cancelled by user.")
-        await send_reply(message, f"❌ Scan for **{chat.title if chat else 'Unknown'}** was cancelled.")
+        await send_reply(message, f"Scan for **{chat.title if chat else 'Unknown'}** was cancelled.")
     except Exception as e:
-        LOGGER.error(f"💥 Critical error in concurrent processing for {channel_id}: {e}")
-        await send_reply(message, f"❌ A critical error occurred during the scan for **{chat.title if chat else 'Unknown'}**.")
+        LOGGER.error(f"Critical error in concurrent processing for {channel_id}: {e}")
+        await send_reply(message, f"A critical error occurred during the scan for **{chat.title if chat else 'Unknown'}**.")
     finally:
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)
@@ -147,7 +147,7 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
     try:
         failed_ids = await MongoDB.get_failed_ids(channel_id)
         if not failed_ids:
-            await send_reply(message, f"✅ No failed IDs found in the database for this channel.")
+            await send_reply(message, f"No failed IDs found in the database for this channel.")
             return
         
         chat = await TgClient.user.get_chat(channel_id)
@@ -166,7 +166,7 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
                 stats["skipped"] += 1
                 return
             async with semaphore:
-                LOGGER.info(f"🎯 Force-processing media message {msg.id} in channel {channel_id}")
+                LOGGER.info(f"Force-processing media message {msg.id} in channel {channel_id}")
                 success, _ = await process_message_full_download_only(TgClient.user, msg)
                 if success:
                     stats["processed"] += 1
@@ -184,17 +184,17 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
         await MongoDB.update_scan_progress(scan_id, len(failed_ids))
         
         await MongoDB.clear_failed_ids(channel_id)
-        summary_text = (f"✅ **Force Scan Complete: {chat.title}**\n\n"
-                        f"- **Updated:** {stats['processed']} files\n"
-                        f"- **Errors:** {stats['errors']} files")
+        summary_text = (f"**Force Scan Complete: {chat.title}**\n\n"
+                        f"- Updated: {stats['processed']} files\n"
+                        f"- Errors: {stats['errors']} files")
         await send_reply(message, summary_text)
-        LOGGER.info(f"✅ Force-processing complete for channel {channel_id}.")
+        LOGGER.info(f"Force-processing complete for channel {channel_id}.")
     except asyncio.CancelledError:
         LOGGER.warning(f"Force scan task {scan_id} was cancelled by user.")
-        await send_reply(message, f"❌ Force scan for **{chat.title if chat else 'Unknown'}** was cancelled.")
+        await send_reply(message, f"Force scan for **{chat.title if chat else 'Unknown'}** was cancelled.")
     except Exception as e:
-        LOGGER.error(f"💥 Critical error in force processing for {channel_id}: {e}")
-        await send_reply(message, f"❌ A critical error occurred during the force scan for channel **{chat.title if chat else 'Unknown'}**.")
+        LOGGER.error(f"Critical error in force processing for {channel_id}: {e}")
+        await send_reply(message, f"A critical error occurred during the force scan for channel **{chat.title if chat else 'Unknown'}**.")
     finally:
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)
