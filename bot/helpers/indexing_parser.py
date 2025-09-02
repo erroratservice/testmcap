@@ -91,7 +91,7 @@ def parse_media_info(filename, caption=None):
     
     # Get encoder from the cleaned filename first
     filename_encoder = get_encoder(text_for_encoder, show_title_for_cleaning)
-    caption_encoder = caption_info.get('encoder', 'Unknown')
+    caption_encoder = caption_info.get('encoder', 'Unknown') if caption_info else 'Unknown'
     
     # Prioritize the filename's encoder. Use caption's only if filename's is unknown.
     final_info['encoder'] = filename_encoder if filename_encoder != 'Unknown' else caption_encoder
