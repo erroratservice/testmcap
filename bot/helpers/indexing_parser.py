@@ -69,10 +69,10 @@ def parse_media_info(filename, caption=None):
     # Encoder detection after potentially removing episode title
     remaining_text_for_encoder = base_name
     if episode_title_for_cleaning:
-        # Use regex for case-insensitive replacement of the title
-        # Also replace common separators to ensure a clean match
-        clean_title = re.sub(r'[._\s]+', '[._\s]+', episode_title_for_cleaning)
-        remaining_text_for_encoder = re.sub(clean_title, '', remaining_text_for_encoder, flags=re.IGNORECASE)
+        # THIS IS THE FIX: Use re.escape() to treat the title as a literal string.
+        # This prevents the "bad escape" error.
+        safe_title_pattern = re.escape(episode_title_for_cleaning)
+        remaining_text_for_encoder = re.sub(safe_title_pattern, '', remaining_text_for_encoder, flags=re.IGNORECASE)
 
     final_info['encoder'] = get_encoder(remaining_text_for_encoder)
 
