@@ -11,7 +11,12 @@ if __name__ == '__main__':
     logging.basicConfig(
         format='[%(asctime)s] [%(levelname)s] - %(message)s',
         datefmt='%d-%b-%y %I:%M:%S %p',
-        level=logging.INFO
+        level=logging.INFO,
+        # Add a FileHandler to also write logs to a file
+        handlers=[
+            logging.FileHandler("bot.log"),
+            logging.StreamHandler()
+        ]
     )
     
     # Reduce Pyrogram log noise
