@@ -9,7 +9,6 @@ import json
 import re
 from aiofiles import open as aiopen
 from aiofiles.os import remove as aioremove
-# Import FloodWait to catch it specifically
 from pyrogram.errors import MessageNotModified, FloodWait
 from bot.core.client import TgClient
 from bot.core.config import Config
@@ -27,6 +26,9 @@ FULL_DOWNLOAD_LIMIT = 200 * 1024 * 1024
 MEDIAINFO_TIMEOUT = 30
 FFPROBE_TIMEOUT = 60
 DOWNLOAD_TIMEOUT = 1800  # 30 minutes
+
+# Regex to detect split files like .mkv.001
+SPLIT_FILE_REGEX = re.compile(r'\.(mkv|mp4|avi|mov)\.\d{3}$', re.IGNORECASE)
 
 async def updatemediainfo_handler(client, message):
     """Handler that initiates a concurrent scan."""
@@ -88,6 +90,13 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
         
         async def worker(msg):
             async with semaphore:
+                # FIX: Check for split files first and skip them
+                media = msg.video or msg.document
+                if media and hasattr(media, 'file_name') and media.file_name and SPLIT_FILE_REGEX.search(media.file_name):
+                    LOGGER.info(f"Skipping split file: {media.file_name}")
+                    stats["skipped"] += 1
+                    return
+
                 if not await has_media(msg) or await already_has_mediainfo(msg):
                     stats["skipped"] += 1
                     return
@@ -255,7 +264,6 @@ async def process_message_enhanced(client, message):
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
         temp_file = os.path.join(temp_dir, f"temp_{message.id}.tmp")
 
-        # --- FIX START: ADDED FLOODWAIT HANDLING ---
         try:
             async with aiopen(temp_file, "wb") as f:
                 chunk_count = 0
@@ -272,15 +280,13 @@ async def process_message_enhanced(client, message):
                             await cleanup_files([temp_file])
                             return True, f"chunk{CHUNK_STEPS[0]}"
         except FloodWait as e:
-            # If a flood wait is caught, log it and sleep for the required time + a small buffer
+            # FIX: If a flood wait is caught, log it and sleep for the required time
             LOGGER.warning(f"FloodWait of {e.value} seconds on message {message.id}. Sleeping...")
             await asyncio.sleep(e.value + 5)
-            # After sleeping, we can try the full download as a retry mechanism
             LOGGER.info(f"Resuming processing for message {message.id} after flood wait.")
         except Exception as e:
             LOGGER.warning(f"Chunk-based processing failed for message {message.id}: {e}")
             pass
-        # --- FIX END ---
 
         if file_size <= FULL_DOWNLOAD_LIMIT:
             try:
