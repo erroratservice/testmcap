@@ -24,9 +24,9 @@ def format_bytes(byte_count):
 async def log_handler(client, message):
     """Handler for the /log command to show the bot's log."""
     try:
-        async with aiofiles.open('log.txt', 'r') as f: # Changed from bot.log
+        async with aiofiles.open('log.txt', 'r') as f:
             lines = await f.readlines()
-            last_lines = "".join(lines[-20:])
+            last_lines = "".join(lines[-20:])  # Get the last 20 lines
         
         if not last_lines:
             await send_reply(message, "Log file is empty.")
@@ -56,7 +56,8 @@ async def stats_handler(client, message):
         disk = shutil.disk_usage('/')
         disk_total = format_bytes(disk.total)
         disk_used = format_bytes(disk.used)
-        disk_percent = disk.percent
+        # --- FIX: Calculate disk percent manually ---
+        disk_percent = round((disk.used / disk.total) * 100)
         
         # Network Usage
         net = psutil.net_io_counters()
