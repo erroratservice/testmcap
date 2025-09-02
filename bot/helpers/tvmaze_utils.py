@@ -51,6 +51,7 @@ class TVMaze:
             LOGGER.info(f"Found episodes for Maze ID {maze_id} in cache.")
             return cached_episodes.get('episodes')
 
+        # This part is a fallback, in case the initial search_show did not embed episodes
         LOGGER.info(f"Episodes for Maze ID {maze_id} not in cache. Querying TVMaze API.")
         try:
             show = self.api.get_show(maze_id=maze_id, embed='episodes')
