@@ -9,7 +9,8 @@ import json
 import re
 from aiofiles import open as aiopen
 from aiofiles.os import remove as aioremove
-from pyrogram.errors import MessageNotModified
+# Import FloodWait to catch it specifically
+from pyrogram.errors import MessageNotModified, FloodWait
 from bot.core.client import TgClient
 from bot.core.config import Config
 from bot.helpers.message_utils import send_message, send_reply
@@ -254,6 +255,7 @@ async def process_message_enhanced(client, message):
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
         temp_file = os.path.join(temp_dir, f"temp_{message.id}.tmp")
 
+        # --- FIX START: ADDED FLOODWAIT HANDLING ---
         try:
             async with aiopen(temp_file, "wb") as f:
                 chunk_count = 0
@@ -269,9 +271,16 @@ async def process_message_enhanced(client, message):
                         if await update_caption_clean(message, video_info, audio_tracks):
                             await cleanup_files([temp_file])
                             return True, f"chunk{CHUNK_STEPS[0]}"
+        except FloodWait as e:
+            # If a flood wait is caught, log it and sleep for the required time + a small buffer
+            LOGGER.warning(f"FloodWait of {e.value} seconds on message {message.id}. Sleeping...")
+            await asyncio.sleep(e.value + 5)
+            # After sleeping, we can try the full download as a retry mechanism
+            LOGGER.info(f"Resuming processing for message {message.id} after flood wait.")
         except Exception as e:
             LOGGER.warning(f"Chunk-based processing failed for message {message.id}: {e}")
             pass
+        # --- FIX END ---
 
         if file_size <= FULL_DOWNLOAD_LIMIT:
             try:
@@ -387,21 +396,16 @@ def parse_essential_metadata(metadata):
 
 async def update_caption_clean(message, video_info, audio_tracks):
     """
-    FIXED: Intelligently updates captions, adding only missing information
+    Intelligently updates captions, adding only missing information
     and cleaning old mediainfo sections.
     """
     try:
         current_caption = message.caption or ""
         
-        # --- FIX START ---
-        
-        # 1. Clean the old mediainfo section from the caption
-        # This regex removes the blank lines and the mediainfo lines
         cleaned_caption = re.sub(r'\n\n(Video:.*\n?|Audio:.*)', '', current_caption).strip()
         
         mediainfo_lines = []
         
-        # 2. Add video info if it's new
         if video_info and video_info.get("codec"):
             codec, height = video_info["codec"], video_info.get("height")
             quality = ""
@@ -413,7 +417,6 @@ async def update_caption_clean(message, video_info, audio_tracks):
             video_line = f"Video: {codec.upper()} {quality}".strip()
             mediainfo_lines.append(video_line)
         
-        # 3. Add audio info if it's new
         if audio_tracks:
             languages = sorted(list(set(t['language'] for t in audio_tracks if t['language'])))
             audio_line = f"Audio: {len(audio_tracks)}"
@@ -423,11 +426,8 @@ async def update_caption_clean(message, video_info, audio_tracks):
         if not mediainfo_lines: 
             return False
         
-        # 4. Construct the new, clean caption
         mediainfo_section = "\n\n" + "\n".join(mediainfo_lines)
         enhanced_caption = cleaned_caption + mediainfo_section
-
-        # --- FIX END ---
         
         if len(enhanced_caption) > 1024:
             enhanced_caption = enhanced_caption[:1020] + "..."
