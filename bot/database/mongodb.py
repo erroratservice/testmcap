@@ -4,6 +4,7 @@ MongoDB database interface for advanced indexing and task management.
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient
 from bot.core.config import Config
+import pymongo # Import pymongo for the synchronous client
 
 LOGGER = logging.getLogger(__name__)
 
@@ -13,17 +14,25 @@ class MongoDB:
     task_collection = None
     media_collection = None
     message_ids_cache = None
-    tvmaze_cache = None # New collection for TVMaze cache
+    tvmaze_cache = None
+    sync_client = None # Synchronous client for non-async operations
+    sync_db = None
 
     @classmethod
     async def initialize(cls):
         try:
+            # Asynchronous client for the main bot operations
             cls.client = AsyncIOMotorClient(Config.DATABASE_URL)
             cls.db = cls.client.mediaindexbot
             cls.task_collection = cls.db.mediamanager
             cls.media_collection = cls.db.media_data
             cls.message_ids_cache = cls.db.message_ids_cache
-            cls.tvmaze_cache = cls.db.tvmaze_cache # Initialize the cache collection
+            
+            # Synchronous client for the TVMaze cache
+            cls.sync_client = pymongo.MongoClient(Config.DATABASE_URL)
+            cls.sync_db = cls.sync_client.mediaindexbot
+            cls.tvmaze_cache = cls.sync_db.tvmaze_cache
+            
             await cls.client.admin.command('ismaster')
             LOGGER.info("MongoDB connected successfully.")
         except Exception as e:
@@ -34,8 +43,28 @@ class MongoDB:
     async def close(cls):
         if cls.client is not None:
             cls.client.close()
-            LOGGER.info("MongoDB connection closed.")
+        if cls.sync_client is not None:
+            cls.sync_client.close()
+        LOGGER.info("MongoDB connections closed.")
 
+    @classmethod
+    def get_tvmaze_cache(cls, title):
+        """Retrieves a cached TVMaze API response using a synchronous client."""
+        if cls.tvmaze_cache is not None:
+            return cls.tvmaze_cache.find_one({'_id': title.lower()})
+        return None
+
+    @classmethod
+    def set_tvmaze_cache(cls, title, data):
+        """Saves a TVMaze API response to the cache using a synchronous client."""
+        if cls.tvmaze_cache is not None:
+            cls.tvmaze_cache.update_one(
+                {'_id': title.lower()},
+                {'$set': {'data': data}},
+                upsert=True
+            )
+            
+    # ... (rest of your existing asynchronous methods)
     @classmethod
     async def get_cached_message_ids(cls, channel_id):
         if cls.message_ids_cache is None: return []
@@ -139,22 +168,3 @@ class MongoDB:
     async def get_media_data(cls, title):
         if cls.media_collection is not None: return await cls.media_collection.find_one({'_id': title})
         return None
-        
-    @classmethod
-    async def get_tvmaze_cache(cls, title):
-        """Retrieves a cached TVMaze API response."""
-        if cls.tvmaze_cache is not None:
-            # Use a case-insensitive search for the title
-            return await cls.tvmaze_cache.find_one({'_id': title.lower()})
-        return None
-
-    @classmethod
-    async def set_tvmaze_cache(cls, title, data):
-        """Saves a TVMaze API response to the cache."""
-        if cls.tvmaze_cache is not None:
-            # Use the lowercase title as a unique ID
-            await cls.tvmaze_cache.update_one(
-                {'_id': title.lower()},
-                {'$set': {'data': data}},
-                upsert=True
-            )
