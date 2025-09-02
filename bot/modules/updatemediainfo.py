@@ -9,6 +9,7 @@ import json
 import re
 from aiofiles import open as aiopen
 from aiofiles.os import remove as aioremove
+from asyncio.exceptions import TimeoutError
 from pyrogram.errors import MessageNotModified, FloodWait
 from bot.core.client import TgClient
 from bot.core.config import Config
@@ -20,6 +21,10 @@ from bot.helpers.channel_utils import stream_history_for_processing
 
 LOGGER = logging.getLogger(__name__)
 
+# Global event to coordinate flood waits across all tasks
+flood_wait_event = asyncio.Event()
+flood_wait_event.set() # Set it to green (go) by default
+
 # Configuration
 CHUNK_STEPS = [5]
 FULL_DOWNLOAD_LIMIT = 200 * 1024 * 1024
@@ -27,11 +32,13 @@ MEDIAINFO_TIMEOUT = 30
 FFPROBE_TIMEOUT = 60
 DOWNLOAD_TIMEOUT = 1800  # 30 minutes
 
-# Regex to detect split files like .mkv.001 OR .001.mkv
-SPLIT_FILE_REGEX = re.compile(r'(\.(mkv|mp4|avi|mov)\.\d{3}|\.\d{3}\.(mkv|mp4|avi|mov))$', re.IGNORECASE)
+# Regex to detect split files like .mkv.001, .001.mkv, and ...part001.mkv
+SPLIT_FILE_REGEX = re.compile(r'(\.(mkv|mp4|avi|mov)\.\d{3}|\.\d{3}\.(mkv|mp4|avi|mov)|\.part\d+\.(mkv|mp4|avi|mov))$', re.IGNORECASE)
 
 async def updatemediainfo_handler(client, message):
     """Handler that initiates a concurrent scan."""
+    # Reset the event at the start of a new command
+    flood_wait_event.set()
     try:
         if MongoDB.db is None:
             await send_message(message, "**Error:** Database is not connected.")
@@ -90,10 +97,13 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
         
         async def worker(msg):
             async with semaphore:
-                # FIX: Add a proactive delay to pace requests and avoid flood waits
+                # Add a proactive delay to pace requests
                 await asyncio.sleep(1.5)
+                
+                # Check the global flood wait event before proceeding
+                await flood_wait_event.wait()
 
-                # FIX: Check for split files first and skip them
+                # Check for split files first and skip them
                 media = msg.video or msg.document
                 if media and hasattr(media, 'file_name') and media.file_name and SPLIT_FILE_REGEX.search(media.file_name):
                     LOGGER.info(f"Skipping split file: {media.file_name}")
@@ -179,7 +189,8 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
                 stats["skipped"] += 1
                 return
             async with semaphore:
-                await asyncio.sleep(1.5) # Also add delay to force scan
+                await asyncio.sleep(1.5)
+                await flood_wait_event.wait()
                 LOGGER.info(f"Force-processing media message {msg.id} in channel {channel_id}")
                 success, _ = await process_message_full_download_only(TgClient.user, msg)
                 if success:
@@ -227,10 +238,14 @@ async def process_message_full_download_only(client, message):
         temp_file = os.path.join(temp_dir, f"temp_{message.id}.tmp")
         
         try:
+            await flood_wait_event.wait()
             await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT)
         except FloodWait as e:
-            LOGGER.warning(f"FloodWait of {e.value} seconds on message {message.id}. Sleeping...")
+            flood_wait_event.clear()
+            LOGGER.warning(f"FloodWait of {e.value}s on message {message.id}. Pausing ALL tasks...")
             await asyncio.sleep(e.value + 5)
+            LOGGER.info(f"Resuming ALL tasks after flood wait.")
+            flood_wait_event.set()
             await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT) # Retry download
         
         metadata = await extract_mediainfo_from_file(temp_file)
@@ -250,8 +265,8 @@ async def process_message_full_download_only(client, message):
                 return True, "full"
         
         return False, "failed"
-    except asyncio.TimeoutError:
-        LOGGER.error(f"Download timed out for message {message.id} after {DOWNLOAD_TIMEOUT} seconds.")
+    except TimeoutError:
+        LOGGER.error(f"Download timed out for message {message.id} due to network issues.")
         return False, "timeout"
     except Exception as e:
         LOGGER.error(f"Full download processing error for message {message.id}: {e}", exc_info=True)
@@ -274,6 +289,7 @@ async def process_message_enhanced(client, message):
         temp_file = os.path.join(temp_dir, f"temp_{message.id}.tmp")
 
         try:
+            await flood_wait_event.wait()
             async with aiopen(temp_file, "wb") as f:
                 chunk_count = 0
                 async for chunk in client.stream_media(message, limit=CHUNK_STEPS[0]):
@@ -289,16 +305,20 @@ async def process_message_enhanced(client, message):
                             await cleanup_files([temp_file])
                             return True, f"chunk{CHUNK_STEPS[0]}"
         except FloodWait as e:
-            # FIX: If a flood wait is caught, log it and sleep for the required time
-            LOGGER.warning(f"FloodWait of {e.value} seconds on message {message.id}. Sleeping...")
+            flood_wait_event.clear()
+            LOGGER.warning(f"FloodWait of {e.value}s on message {message.id}. Pausing ALL tasks...")
             await asyncio.sleep(e.value + 5)
-            LOGGER.info(f"Resuming processing for message {message.id} after flood wait.")
+            LOGGER.info(f"Resuming ALL tasks after flood wait.")
+            flood_wait_event.set()
+        except TimeoutError:
+            LOGGER.warning(f"Chunk download timed out for message {message.id}.")
         except Exception as e:
             LOGGER.warning(f"Chunk-based processing failed for message {message.id}: {e}")
             pass
 
         if file_size <= FULL_DOWNLOAD_LIMIT:
             try:
+                await flood_wait_event.wait()
                 await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT)
                 
                 metadata = await extract_mediainfo_from_file(temp_file)
@@ -317,7 +337,7 @@ async def process_message_enhanced(client, message):
                         await cleanup_files([temp_file])
                         return True, "full"
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 LOGGER.warning(f"Full download timed out for message {message.id}")
                 return False, "timeout"
         
