@@ -35,47 +35,59 @@ IGNORED_TAGS = {
 
 def parse_media_info(filename, caption=None):
     """
-    Intelligently parses and merges media info from both the filename and caption.
+    Intelligently parses media info from the filename and enriches it with TVMaze data.
     """
     base_name, is_split = get_base_name(filename)
-    
     filename_info = extract_info_from_text(base_name)
-    
+
     if not filename_info:
         return None
 
-    caption_info = extract_info_from_text(caption or "")
-    
     final_info = filename_info.copy()
-    
-    filename_quality = filename_info.get('quality', 'Unknown')
-    caption_quality = caption_info.get('quality', 'Unknown') if caption_info else 'Unknown'
-    final_info['quality'] = caption_quality if caption_quality != 'Unknown' else filename_quality
-
-    filename_codec = filename_info.get('codec', 'Unknown')
-    caption_codec = caption_info.get('codec', 'Unknown') if caption_info else 'Unknown'
-    final_info['codec'] = caption_codec if caption_codec != 'Unknown' else filename_codec
-    
-    filename_encoder = filename_info.get('encoder', 'Unknown')
-    caption_encoder = caption_info.get('encoder', 'Unknown') if caption_info else 'Unknown'
-    final_info['encoder'] = caption_encoder if caption_encoder != 'Unknown' else filename_encoder
+    episode_title_for_cleaning = None
 
     # TVMaze API Integration
     if 'title' in final_info:
         show_data = tvmaze_api.search_show(final_info['title'])
         if show_data:
-            final_info['title'] = show_data.get('name')
+            maze_id = show_data.get('maze_id')
+            final_info['title'] = show_data.get('name', final_info['title'])
             if not final_info.get('year') and show_data.get('premiered'):
                 final_info['year'] = int(show_data['premiered'][:4])
-            
-            # Refine encoder detection by removing words from the title
-            title_words = set(final_info['title'].upper().split())
-            if final_info['encoder'] in title_words:
-                final_info['encoder'] = 'Unknown'
+
+            # If it's a series, fetch episode title for cleaning purposes
+            if final_info.get('type') == 'series' and maze_id:
+                episodes = tvmaze_api.get_episodes(maze_id)
+                if episodes:
+                    for episode_info in episodes:
+                        if (episode_info.get('season_number') == final_info.get('season') and
+                            episode_info.get('episode_number') in final_info.get('episodes', [])):
+                            episode_title_for_cleaning = episode_info.get('title')
+                            if len(final_info.get('episodes', [])) == 1:
+                                break
+    
+    # Encoder detection after potentially removing episode title
+    remaining_text_for_encoder = base_name
+    if episode_title_for_cleaning:
+        # Remove the episode title from the filename to avoid misidentifying encoders
+        # Use regex for case-insensitive replacement
+        remaining_text_for_encoder = re.sub(re.escape(episode_title_for_cleaning), '', remaining_text_for_encoder, flags=re.IGNORECASE)
+
+    final_info['encoder'] = get_encoder(remaining_text_for_encoder)
+    
+    # Add other details from caption if available
+    caption_info = extract_info_from_text(caption or "")
+    if caption_info:
+        final_info['quality'] = caption_info.get('quality', final_info.get('quality', 'Unknown'))
+        final_info['codec'] = caption_info.get('codec', final_info.get('codec', 'Unknown'))
+        # Prioritize encoder from filename unless it's unknown
+        if final_info['encoder'] == 'Unknown':
+            final_info['encoder'] = caption_info.get('encoder', 'Unknown')
+
 
     final_info['is_split'] = is_split
     final_info['base_name'] = base_name
-    
+
     return final_info
 
 def get_base_name(filename):
@@ -98,7 +110,6 @@ def extract_info_from_text(text):
     
     quality = get_quality(text)
     codec = get_codec(text)
-    encoder = get_encoder(text)
 
     if series_match:
         title_part, season_str, start_ep_str, end_ep_str = series_match.groups()
@@ -106,14 +117,14 @@ def extract_info_from_text(text):
         season = int(season_str)
         start_ep = int(start_ep_str)
         episodes = list(range(start_ep, int(end_ep_str) + 1)) if end_ep_str else [start_ep]
-        return {'title': title, 'season': season, 'episodes': episodes, 'quality': quality, 'codec': codec, 'encoder': encoder, 'type': 'series'}
+        return {'title': title, 'season': season, 'episodes': episodes, 'quality': quality, 'codec': codec, 'type': 'series'}
 
     if movie_match:
         title, year = movie_match.groups()
-        return {'title': title.replace('.', ' ').strip().title(), 'year': int(year), 'quality': quality, 'codec': codec, 'encoder': encoder, 'type': 'movie'}
+        return {'title': title.replace('.', ' ').strip().title(), 'year': int(year), 'quality': quality, 'codec': codec, 'type': 'movie'}
     
-    if any(val != 'Unknown' for val in [quality, codec, encoder]):
-        return {'quality': quality, 'codec': codec, 'encoder': encoder}
+    if any(val != 'Unknown' for val in [quality, codec]):
+        return {'quality': quality, 'codec': codec}
 
     return None
 
@@ -139,7 +150,8 @@ def get_encoder(text):
     for tag in reversed(potential_tags):
         if not tag: continue
         tag_upper = tag.upper()
-        if tag_upper in KNOWN_ENCODERS:
+        # Ensure the tag is not purely numeric to avoid matching years etc.
+        if tag_upper in KNOWN_ENCODERS and not tag_upper.isdigit():
             return tag_upper
             
     return 'Unknown'
