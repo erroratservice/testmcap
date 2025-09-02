@@ -14,9 +14,8 @@ class MongoDB:
     task_collection = None
     media_collection = None
     message_ids_cache = None
-    tvmaze_cache = None
-    tvmaze_episodes_cache = None
-    sync_client = None # Synchronous client for non-async operations
+    tvmaze_cache = None # Single cache for minimal show data
+    sync_client = None 
     sync_db = None
 
     @classmethod
@@ -24,7 +23,7 @@ class MongoDB:
         try:
             # Asynchronous client for the main bot operations
             cls.client = AsyncIOMotorClient(Config.DATABASE_URL)
-            cls.db = cls.client.mediamanager
+            cls.db = cls.client.mediaindexbot
             cls.task_collection = cls.db.mediamanager
             cls.media_collection = cls.db.media_data
             cls.message_ids_cache = cls.db.message_ids_cache
@@ -33,7 +32,6 @@ class MongoDB:
             cls.sync_client = pymongo.MongoClient(Config.DATABASE_URL)
             cls.sync_db = cls.sync_client.mediaindexbot
             cls.tvmaze_cache = cls.sync_db.tvmaze_cache
-            cls.tvmaze_episodes_cache = cls.sync_db.tvmaze_episodes_cache
 
             await cls.client.admin.command('ismaster')
             LOGGER.info("MongoDB connected successfully.")
@@ -51,35 +49,18 @@ class MongoDB:
 
     @classmethod
     def get_tvmaze_cache(cls, title):
-        """Retrieves a cached TVMaze API response using a synchronous client."""
+        """Retrieves a cached minimal TVMaze response."""
         if cls.tvmaze_cache is not None:
             return cls.tvmaze_cache.find_one({'_id': title.lower()})
         return None
 
     @classmethod
     def set_tvmaze_cache(cls, title, data):
-        """Saves a TVMaze API response to the cache using a synchronous client."""
+        """Saves a minimal TVMaze response to the cache."""
         if cls.tvmaze_cache is not None:
             cls.tvmaze_cache.update_one(
                 {'_id': title.lower()},
                 {'$set': {'data': data}},
-                upsert=True
-            )
-
-    @classmethod
-    def get_tvmaze_episodes_cache(cls, maze_id):
-        """Retrieves a cached episode list for a show."""
-        if cls.tvmaze_episodes_cache is not None:
-            return cls.tvmaze_episodes_cache.find_one({'_id': maze_id})
-        return None
-
-    @classmethod
-    def set_tvmaze_episodes_cache(cls, maze_id, episodes_data):
-        """Saves an episode list to the cache."""
-        if cls.tvmaze_episodes_cache is not None:
-            cls.tvmaze_episodes_cache.update_one(
-                {'_id': maze_id},
-                {'$set': {'episodes': episodes_data}},
                 upsert=True
             )
 
