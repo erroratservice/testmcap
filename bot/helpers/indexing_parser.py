@@ -64,9 +64,9 @@ def parse_media_info(filename, caption=None):
     if 'title' in final_info:
         show_data = tvmaze_api.search_show(final_info['title'])
         if show_data:
-            final_info['title'] = show_data['show']['name']
-            if not final_info.get('year') and show_data['show'].get('premiered'):
-                final_info['year'] = int(show_data['show']['premiered'][:4])
+            final_info['title'] = show_data.get('name')
+            if not final_info.get('year') and show_data.get('premiered'):
+                final_info['year'] = int(show_data['premiered'][:4])
             
             # Refine encoder detection by removing words from the title
             title_words = set(final_info['title'].upper().split())
