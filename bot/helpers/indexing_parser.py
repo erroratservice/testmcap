@@ -71,7 +71,7 @@ def parse_media_info(filename, caption=None):
     if episode_title_for_cleaning:
         # Use regex for case-insensitive replacement of the title
         # Also replace common separators to ensure a clean match
-        clean_title = re.sub(r'[\._\s]+', '[._\s]+', episode_title_for_cleaning)
+        clean_title = re.sub(r'[._\s]+', '[._\s]+', episode_title_for_cleaning)
         remaining_text_for_encoder = re.sub(clean_title, '', remaining_text_for_encoder, flags=re.IGNORECASE)
 
     final_info['encoder'] = get_encoder(remaining_text_for_encoder)
@@ -137,7 +137,7 @@ def get_quality(text):
 def get_codec(text):
     if re.search(r'\b(AV1)\b', text, re.IGNORECASE): return 'AV1'
     if re.search(r'\b(VP9)\b', text, re.IGNORECASE): return 'VP9'
-    if re.search(r'\b(HEVC|x265|H\s*265)\b', text, re.IGNORECASE): return 'X255'
+    if re.search(r'\b(HEVC|x265|H\s*265)\b', text, re.IGNORECASE): return 'X265'
     if re.search(r'\b(AVC|x264|H\s*264)\b', text, re.IGNORECASE): return 'X264'
     return 'Unknown'
 
