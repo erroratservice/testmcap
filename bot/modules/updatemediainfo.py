@@ -31,7 +31,7 @@ CHUNK_STEPS = [5]
 FULL_DOWNLOAD_LIMIT = 200 * 1024 * 1024
 MEDIAINFO_TIMEOUT = 30
 FFPROBE_TIMEOUT = 60
-DOWNLOAD_TIMEOUT = 1800  # 30 minutes
+DOWNLOAD_TIMEOUT = 1800 # 30 minutes
 
 # Regex to detect split files like .mkv.001, .001.mkv, and ...part001.mkv
 SPLIT_FILE_REGEX = re.compile(r'(\.(mkv|mp4|avi|mov)\.00[1-9]|\.00[1-9]\.(mkv|mp4|avi|mov)|\.part00[1-9]\.(mkv|mp4|avi|mov))$', re.IGNORECASE)
@@ -54,7 +54,7 @@ async def updatemediainfo_handler(client, message):
             return
 
         channel_id = channels[0]
-        
+
         await trigger_status_creation(message)
 
         if is_force_failed_run:
@@ -67,7 +67,7 @@ async def updatemediainfo_handler(client, message):
             scan_id = f"scan_{channel_id}_{message.id}"
             task = asyncio.create_task(process_channel_concurrently(channel_id, message, scan_id, force=is_force_rescan))
             ACTIVE_TASKS[scan_id] = task
-            
+
     except Exception as e:
         LOGGER.error(f"Handler error in updatemediainfo: {e}")
         await send_message(message, f"**Error:** {e}")
@@ -84,23 +84,23 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
     """Processes a channel by streaming messages and running file tasks concurrently."""
     user_id = message.from_user.id
     chat = None
-    
+
     try:
         chat = await TgClient.user.get_chat(channel_id)
-        
+
         total_messages = await TgClient.user.get_chat_history_count(chat_id=channel_id)
         await MongoDB.start_scan(scan_id, channel_id, user_id, total_messages, chat.title, "MediaInfo Scan")
 
         stats = {"processed": 0, "errors": 0, "skipped": 0}
         failed_ids_internal = []
-        
+
         semaphore = asyncio.Semaphore(Config.MAX_CONCURRENT_TASKS)
-        
+
         async def worker(msg):
             async with semaphore:
                 # Add a proactive delay to pace requests
                 await asyncio.sleep(1.5)
-                
+
                 # Check the global flood wait event before proceeding
                 await flood_wait_event.wait()
 
@@ -139,13 +139,13 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
             for result in results:
                 if isinstance(result, Exception):
                     LOGGER.error(f"A task failed with an exception in a batch: {result}", exc_info=True)
-            
+
             processed_count += len(message_batch)
             await MongoDB.update_scan_progress(scan_id, processed_count)
 
         if failed_ids_internal:
             await MongoDB.save_failed_ids(channel_id, failed_ids_internal)
-        
+
         summary_text = (f"**Scan Complete: {chat.title}**\n\n"
                         f"- Updated: {stats['processed']} files\n"
                         f"- Errors: {stats['errors']} files\n"
@@ -167,26 +167,26 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
     """Concurrently processes only the failed message IDs stored in the database."""
     user_id = message.from_user.id
     chat = None
-    
+
     try:
         failed_ids = await MongoDB.get_failed_ids(channel_id)
         if not failed_ids:
             await send_reply(message, f"No failed IDs found in the database for this channel.")
             return
-        
+
         chat = await TgClient.user.get_chat(channel_id)
         await MongoDB.start_scan(scan_id, channel_id, user_id, len(failed_ids), chat.title, "Force Scan")
-        
+
         stats = {"processed": 0, "errors": 0, "skipped": 0}
-        
+
         messages_to_process = await TgClient.user.get_messages(chat_id=channel_id, message_ids=failed_ids)
-        
+
         semaphore = asyncio.Semaphore(Config.MAX_CONCURRENT_TASKS)
         stop_event = asyncio.Event()
         updater_task = asyncio.create_task(progress_updater(scan_id, stats, stop_event))
-        
+
         async def worker(msg):
-            if not msg: 
+            if not msg:
                 stats["skipped"] += 1
                 return
             async with semaphore:
@@ -198,7 +198,7 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
                     stats["processed"] += 1
                 else:
                     stats["errors"] += 1
-        
+
         tasks = [worker(msg) for msg in messages_to_process]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for result in results:
@@ -208,7 +208,7 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
         stop_event.set()
         await updater_task
         await MongoDB.update_scan_progress(scan_id, len(failed_ids))
-        
+
         await MongoDB.clear_failed_ids(channel_id)
         summary_text = (f"**Force Scan Complete: {chat.title}**\n\n"
                         f"- Updated: {stats['processed']} files\n"
@@ -237,39 +237,42 @@ async def process_message_full_download_only(client, message):
         temp_dir = "temp_mediainfo"
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
         temp_file = os.path.join(temp_dir, f"temp_{message.id}.tmp")
-        
+
         try:
             await flood_wait_event.wait()
             await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT)
         except FloodWait as e:
             flood_wait_event.clear()
-            scan_id = [key for key, task in ACTIVE_TASKS.items() if task is asyncio.current_task()][0]
+            scan_id_list = [key for key, task in ACTIVE_TASKS.items() if task is asyncio.current_task()]
+            if not scan_id_list:
+                LOGGER.warning("Could not find an active scan ID for the current task. Skipping flood wait update.")
+                return False, "error"
+            scan_id = scan_id_list[0]
             await MongoDB.set_scan_flood_wait(scan_id, time.time() + e.value)
-            
+
             LOGGER.warning(f"FloodWait of {e.value}s on message {message.id}. Pausing ALL tasks...")
             await asyncio.sleep(e.value + 5)
-            
+
             await MongoDB.clear_scan_flood_wait(scan_id)
             LOGGER.info(f"Resuming ALL tasks after flood wait.")
-            flood_wait_event.set()
             await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT) # Retry download
-        
+
         metadata = await extract_mediainfo_from_file(temp_file)
         video_info, audio_tracks = None, []
         if metadata:
             video_info, audio_tracks = parse_essential_metadata(metadata)
-        
+
         if not video_info and not audio_tracks:
             LOGGER.warning(f"MediaInfo failed for {filename}. Trying ffprobe as a fallback.")
             ffprobe_metadata = await extract_metadata_with_ffprobe(temp_file)
             if ffprobe_metadata:
                 video_info, audio_tracks = parse_ffprobe_metadata(ffprobe_metadata)
-        
+
         if video_info or audio_tracks:
             if await update_caption_clean(message, video_info, audio_tracks):
                 await cleanup_files([temp_file])
                 return True, "full"
-        
+
         return False, "failed"
     except TimeoutError:
         LOGGER.error(f"Download timed out for message {message.id} due to network issues.")
@@ -289,7 +292,7 @@ async def process_message_enhanced(client, message):
 
         filename = str(media.file_name) if media.file_name else f"media_{message.id}"
         file_size = media.file_size
-        
+
         temp_dir = "temp_mediainfo"
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
         temp_file = os.path.join(temp_dir, f"temp_{message.id}.tmp")
@@ -301,7 +304,7 @@ async def process_message_enhanced(client, message):
                 async for chunk in client.stream_media(message, limit=CHUNK_STEPS[0]):
                     await f.write(chunk)
                     chunk_count += 1
-            
+
             if chunk_count > 0:
                 metadata = await extract_mediainfo_from_file(temp_file)
                 if metadata:
@@ -312,15 +315,18 @@ async def process_message_enhanced(client, message):
                             return True, f"chunk{CHUNK_STEPS[0]}"
         except FloodWait as e:
             flood_wait_event.clear()
-            scan_id = [key for key, task in ACTIVE_TASKS.items() if task is asyncio.current_task()][0]
+            scan_id_list = [key for key, task in ACTIVE_TASKS.items() if task is asyncio.current_task()]
+            if not scan_id_list:
+                LOGGER.warning("Could not find an active scan ID for the current task. Skipping flood wait update.")
+                return False, "error"
+            scan_id = scan_id_list[0]
             await MongoDB.set_scan_flood_wait(scan_id, time.time() + e.value)
-            
+
             LOGGER.warning(f"FloodWait of {e.value}s on message {message.id}. Pausing ALL tasks...")
             await asyncio.sleep(e.value + 5)
-            
+
             await MongoDB.clear_scan_flood_wait(scan_id)
             LOGGER.info(f"Resuming ALL tasks after flood wait.")
-            flood_wait_event.set()
         except TimeoutError:
             LOGGER.warning(f"Chunk download timed out for message {message.id}.")
         except Exception as e:
@@ -331,7 +337,7 @@ async def process_message_enhanced(client, message):
             try:
                 await flood_wait_event.wait()
                 await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT)
-                
+
                 metadata = await extract_mediainfo_from_file(temp_file)
                 video_info, audio_tracks = None, []
                 if metadata:
@@ -342,7 +348,7 @@ async def process_message_enhanced(client, message):
                     ffprobe_metadata = await extract_metadata_with_ffprobe(temp_file)
                     if ffprobe_metadata:
                         video_info, audio_tracks = parse_ffprobe_metadata(ffprobe_metadata)
-                
+
                 if video_info or audio_tracks:
                     if await update_caption_clean(message, video_info, audio_tracks):
                         await cleanup_files([temp_file])
@@ -351,7 +357,7 @@ async def process_message_enhanced(client, message):
             except TimeoutError:
                 LOGGER.warning(f"Full download timed out for message {message.id}")
                 return False, "timeout"
-        
+
         return False, "failed"
     except Exception as e:
         LOGGER.error(f"Enhanced processing error for message {message.id}: {e}")
@@ -398,7 +404,7 @@ def parse_ffprobe_metadata(metadata):
     try:
         video_info, audio_tracks = None, []
         streams = metadata.get("streams", [])
-        
+
         for stream in streams:
             codec_type = stream.get("codec_type")
             if codec_type == "video" and not video_info:
@@ -410,7 +416,7 @@ def parse_ffprobe_metadata(metadata):
                 lang_tag = stream.get("tags", {}).get("language", "und")
                 language = lang_tag.upper() if lang_tag != "und" else None
                 audio_tracks.append({"language": language})
-        
+
         return video_info, audio_tracks
     except Exception as e:
         LOGGER.error(f"FFprobe metadata parsing error: {e}")
@@ -420,7 +426,7 @@ def parse_essential_metadata(metadata):
     try:
         tracks = metadata.get("media", {}).get("track", [])
         video_info, audio_tracks = None, []
-        
+
         for track in tracks:
             track_type = track.get("@type", "").lower()
             if track_type == "video" and not video_info:
@@ -447,12 +453,12 @@ async def update_caption_clean(message, video_info, audio_tracks):
     """
     try:
         current_caption = message.caption or ""
-        
+
         # More robustly find the main caption, discarding all old mediainfo blocks
         main_caption = current_caption.split('\n\n')[0].strip()
-        
+
         mediainfo_lines = []
-        
+
         if video_info and video_info.get("codec"):
             codec, height = video_info["codec"], video_info.get("height")
             quality = ""
@@ -463,25 +469,25 @@ async def update_caption_clean(message, video_info, audio_tracks):
                 else: quality = f"{height}p"
             video_line = f"Video: {codec.upper()} {quality}".strip()
             mediainfo_lines.append(video_line)
-        
+
         if audio_tracks:
             languages = sorted(list(set(t['language'] for t in audio_tracks if t['language'])))
             audio_line = f"Audio: {len(audio_tracks)}"
             if languages: audio_line += f" ({', '.join(languages)})"
             mediainfo_lines.append(audio_line)
-        
-        if not mediainfo_lines: 
+
+        if not mediainfo_lines:
             return False
-        
+
         mediainfo_section = "\n\n" + "\n".join(mediainfo_lines)
         enhanced_caption = main_caption + mediainfo_section
-        
+
         if len(enhanced_caption) > 1024:
             enhanced_caption = enhanced_caption[:1020] + "..."
-        
-        if current_caption == enhanced_caption: 
+
+        if current_caption == enhanced_caption:
             return False
-        
+
         await TgClient.user.edit_message_caption(
             chat_id=message.chat.id, message_id=message.id, caption=enhanced_caption
         )
@@ -526,7 +532,7 @@ async def get_target_channels(message):
     """Correctly extracts the channel ID while ignoring known flags."""
     known_flags = ['-rescan', '-f']
     args = [arg for arg in message.command[1:] if arg not in known_flags]
-    
+
     if args:
         channel_id = args[0]
         try:
