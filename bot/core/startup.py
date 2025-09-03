@@ -5,6 +5,7 @@ Clean bot startup sequence
 import asyncio
 import logging
 import os
+import time
 from pyrogram.errors import MessageNotModified, MessageDeleteForbidden
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from bot.core.config import Config
@@ -19,7 +20,8 @@ async def update_status_periodically():
     """A background task that periodically updates the central status message."""
     was_active = False
     while True:
-        await asyncio.sleep(5)
+        # --- FIX: Changed sleep interval from 5 to 10 seconds ---
+        await asyncio.sleep(10)
         if MongoDB.db is None:
             continue
 
@@ -61,9 +63,17 @@ async def update_status_periodically():
                     bar = f"[{'█' * int(progress / 10)}{'░' * (10 - int(progress / 10))}] {progress:.1f}%"
                     
                     text += f"**{i}. {operation}:** `{channel}`\n"
-                    text += f"   `{bar}`\n"
-                    text += f"   `Processed: {current} / {total}`\n\n"
                     
+                    # --- FIX: Check for and display flood wait status ---
+                    flood_wait_until = scan.get('flood_wait_until')
+                    if flood_wait_until and flood_wait_until > time.time():
+                        remaining_time = int(flood_wait_until - time.time())
+                        text += f"   `STATUS: Paused (FloodWait for {remaining_time}s)`\n"
+                    else:
+                        text += f"   `{bar}`\n"
+                        text += f"   `Processed: {current} / {total}`\n"
+
+                    text += "\n"
                     buttons.append([InlineKeyboardButton(f"Cancel Task #{i}", callback_data=f"cancel_{scan['_id']}")])
 
             class DummyMessage:
