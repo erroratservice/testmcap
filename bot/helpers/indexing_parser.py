@@ -3,10 +3,12 @@ Advanced parser for media filenames and captions with improved movie/series dete
 """
 import re
 import logging
+from bot.core.config import Config
 from bot.helpers.tvmaze_utils import tvmaze_api
 
 LOGGER = logging.getLogger(__name__)
 
+# --- FIX: Updated Encoder and Ignore Lists ---
 KNOWN_ENCODERS = {
     'GHOST', 'AMBER', 'ELITE', 'BONE', 'CELDRA', 'MEGUSTA', 'EDGE2020', 'SIX',
     'PAHE', 'DARKFLIX', 'D3G', 'PHOCIS', 'ZTR', 'TIPEX', 'PRIMEFIX',
@@ -20,8 +22,10 @@ KNOWN_ENCODERS = {
     'DHD', 'MkvCage', 'RARBGx', 'RGXT', 'TGx', 'SAiNT', 'DpR', 'KaKa',
     'S4KK', 'D-Z0N3', 'PTer', 'BBL', 'BMF', 'FASM', 'SC4R', '4KiNGS',
     'HDX', 'DEFLATE', 'TERMiNAL', 'PTP', 'ROKiT', 'SWTYBLZ', 'HOMELANDER',
-    'TombDoc', 'Walter', 'RZEROX',
-    'V3SP4EV3R'
+    'TombDoc', 'Walter', 'RZEROX', 'V3SP4EV3R',
+    # User additions
+    'Silence', 'ivy', 'DaddyCooL', 'KONTRAST', 'vyndros', 'SAON', 'DUST', 
+    'BigJ0554', 'dAV1nci'
 }
 
 IGNORED_TAGS = {
@@ -30,14 +34,16 @@ IGNORED_TAGS = {
     'AMZN', 'NF', 'NETFLIX', 'HULU', 'ATVP', 'DSNP', 'MAX', 'CRAV', 'PCOCK',
     'RTE', 'EZTV', 'ETTV', 'HDR', 'HDR10', 'DV', 'DOLBY', 'VISION', 'ATMOS',
     'DTS', 'AAC', 'DDP', 'DDP2', 'DDP5', 'OPUS', 'AC3', '10BIT', 'UHD',
-    'PROPER', 'COMPLETE', 'FULL SERIES', 'INT', 'RIP', 'MULTI', 'GB', 'XVID'
+    'PROPER', 'COMPLETE', 'FULL SERIES', 'INT', 'RIP', 'MULTI', 'GB', 'XVID',
+    # User additions
+    'AMZNWebDL', 'DS4K', 'SDR', 'DDP5.1', '[EZTVx.to]', 'EAC3', 'ESUB'
 }
 
 def _get_canonical_title(title):
     """Creates a normalized title for consistent grouping."""
-    # Remove year in parentheses, e.g., (2020)
-    title = re.sub(r'\s*\(\d{4}\)\s*', '', title)
-    # Remove trailing hyphens or spaces
+    # FIX: More aggressive cleaning to remove year and special characters
+    title = re.sub(r'[\s._-]*\(\d{4}\)[\s._-]*', ' ', title)
+    title = re.sub(r'[:()]', '', title)
     return title.strip().rstrip('-').strip()
 
 def parse_media_info(filename, caption=None):
@@ -56,23 +62,27 @@ def parse_media_info(filename, caption=None):
     final_info = filename_info.copy()
     
     # --- Step 2: Merge Quality and Codec ---
-    # FIX: If caption_info is None, treat it as an empty dict to prevent errors
     safe_caption_info = caption_info or {}
     final_info['quality'] = safe_caption_info.get('quality', final_info.get('quality', 'Unknown'))
     final_info['codec'] = safe_caption_info.get('codec', final_info.get('codec', 'Unknown'))
 
-    # --- Step 3: TVMaze Enrichment and Cleaning ---
-    episode_title_for_cleaning = None
-    show_title_for_cleaning = set()
+    # --- Step 3: TVMaze Enrichment and Cleaning (Rewritten Logic) ---
+    words_to_exclude = set()
 
     if 'title' in final_info:
         show_data = tvmaze_api.get_minimal_info(final_info['title'])
         if show_data:
-            official_title = show_data.get('name', final_info['title'])
-            final_info['title'] = official_title
-            
-            # Create a set of words from the official title to remove later
-            show_title_for_cleaning = set(re.split(r'[\s._-]+', official_title.upper()))
+            # FIX: Use TVMaze title only if the config allows it
+            if Config.USE_TVMAZE_TITLES:
+                official_title = show_data.get('name', final_info['title'])
+                final_info['title'] = official_title
+            else:
+                official_title = final_info['title']
+
+            # FIX: Add all words from the official title to an exclusion list
+            # This is much more reliable for preventing incorrect encoder detection
+            for word in re.split(r'[\s._-]+', official_title.upper()):
+                words_to_exclude.add(word)
 
             if not final_info.get('year') and show_data.get('premiered'):
                 final_info['year'] = int(show_data['premiered'][:4])
@@ -81,21 +91,16 @@ def parse_media_info(filename, caption=None):
                 for episode_info in show_data['episodes']:
                     if (episode_info.get('season_number') == final_info.get('season') and
                         episode_info.get('episode_number') in final_info.get('episodes', [])):
-                        episode_title_for_cleaning = episode_info.get('title')
+                        episode_title = episode_info.get('title')
+                        if episode_title:
+                            # Also add all words from the episode title to the exclusion list
+                            for word in re.split(r'[\s._-]+', episode_title.upper()):
+                                words_to_exclude.add(word)
                         break
     
     # --- Step 4: Robust Encoder Detection ---
-    text_for_encoder = base_name
-    # Remove the episode title from the text
-    if episode_title_for_cleaning:
-        safe_pattern = re.escape(episode_title_for_cleaning)
-        text_for_encoder = re.sub(safe_pattern, '', text_for_encoder, flags=re.IGNORECASE)
-    
-    # Get encoder from the cleaned filename first
-    filename_encoder = get_encoder(text_for_encoder, show_title_for_cleaning)
+    filename_encoder = get_encoder(base_name, words_to_exclude)
     caption_encoder = safe_caption_info.get('encoder', 'Unknown')
-    
-    # Prioritize the filename's encoder. Use caption's only if filename's is unknown.
     final_info['encoder'] = filename_encoder if filename_encoder != 'Unknown' else caption_encoder
 
     # --- Step 5: Finalize and Add Canonical Title ---
@@ -108,17 +113,17 @@ def parse_media_info(filename, caption=None):
     return final_info
 
 def get_base_name(filename):
-    # Match format like .mkv.001, .mp4.002
+    # Match format like .mkv.001
     match_ext_first = re.search(r'^(.*)\.(mkv|mp4|avi|mov)\.(\d{3})$', filename, re.IGNORECASE)
     if match_ext_first:
         return f"{match_ext_first.group(1)}.{match_ext_first.group(2)}", True
         
-    # Match format like .001.mkv, .002.mp4
+    # Match format like .001.mkv
     match_num_first = re.search(r'^(.*)\.(\d{3})\.(mkv|mp4|avi|mov)$', filename, re.IGNORECASE)
     if match_num_first:
         return f"{match_num_first.group(1)}.{match_num_first.group(3)}", True
         
-    # Match format like ...part001.mkv, ...part002.mkv
+    # Match format like ...part001.mkv
     match_part_num = re.search(r'^(.*)\.part(\d+)\.(mkv|mp4|avi|mov)$', filename, re.IGNORECASE)
     if match_part_num:
         return f"{match_part_num.group(1)}.{match_part_num.group(3)}", True
@@ -129,18 +134,31 @@ def extract_info_from_text(text):
     if not text:
         return None
 
-    series_pattern = re.compile(r'(.+?)[ ._\[\(-][sS](\d{1,2})[ ._]?[eE](\d{1,3})(?:-[eE]?(\d{1,3}))?', re.IGNORECASE)
+    # FIX: More robust series pattern to handle different formats
+    series_pattern = re.compile(
+        r'(.+?)[ ._\[\(-]'
+        r'[sS](\d{1,2})'
+        r'[ ._]?[eE](\d{1,3})'
+        r'(?:-[eE]?(\d{1,3}))?',
+        re.IGNORECASE
+    )
+    series_match_alt = re.search(r'(.+?)[ ._\[\(-](\d{1,2})x(\d{1,3})', text, re.IGNORECASE) # For 1x01 format
     movie_pattern = re.compile(r'(.+?)[ ._\[\(](\d{4})[ ._\]\)]', re.IGNORECASE)
 
-    series_match = series_pattern.search(text)
+    series_match = series_pattern.search(text) or series_match_alt
     movie_match = movie_pattern.search(text)
     
     quality = get_quality(text)
     codec = get_codec(text)
-    encoder = get_encoder(text) # Initial pass
+    encoder = get_encoder(text)
 
     if series_match:
-        title_part, season_str, start_ep_str, end_ep_str = series_match.groups()
+        if series_match_alt and not series_pattern.search(text):
+             title_part, season_str, start_ep_str = series_match.groups()
+             end_ep_str = None
+        else:
+            title_part, season_str, start_ep_str, end_ep_str = series_match.groups()
+        
         title = re.sub(r'[\._]', ' ', title_part).strip().title()
         season = int(season_str)
         start_ep = int(start_ep_str)
@@ -166,8 +184,9 @@ def get_quality(text):
 def get_codec(text):
     if re.search(r'\b(AV1)\b', text, re.IGNORECASE): return 'AV1'
     if re.search(r'\b(VP9)\b', text, re.IGNORECASE): return 'VP9'
-    if re.search(r'\b(HEVC|x265|H\s*265)\b', text, re.IGNORECASE): return 'X265'
-    if re.search(r'\b(AVC|x264|H\s*264)\b', text, re.IGNORECASE): return 'X264'
+    # FIX: More flexible regex for H.265/x265
+    if re.search(r'\b(HEVC|x265|H[\s._]?265)\b', text, re.IGNORECASE): return 'X265'
+    if re.search(r'\b(AVC|x264|H[\s._]?264)\b', text, re.IGNORECASE): return 'X264'
     return 'Unknown'
 
 def get_encoder(text, words_to_exclude=None):
@@ -180,7 +199,7 @@ def get_encoder(text, words_to_exclude=None):
     for tag in reversed(potential_tags):
         if not tag: continue
         tag_upper = tag.upper()
-        # CRITICAL FIX: Do not identify a word as an encoder if it's part of the show's title
+        # CRITICAL FIX: Do not identify a word as an encoder if it's part of the show/episode title
         if tag_upper in KNOWN_ENCODERS and tag_upper not in words_to_exclude:
             return tag_upper
             
