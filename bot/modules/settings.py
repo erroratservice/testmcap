@@ -1,23 +1,36 @@
 """
-Interactive settings command for updating the index channel.
+Interactive settings command for updating various bot configurations.
 """
 
 import logging
 from bot.core.config import Config
 from bot.helpers.message_utils import send_message, edit_message
 from bot.helpers.keyboard_utils import build_settings_keyboard
-from bot.core.tasks import USER_STATES # Import from the new location
+from bot.core.tasks import USER_STATES
 
 LOGGER = logging.getLogger(__name__)
+
+# A dictionary to hold information about each setting
+SETTINGS = {
+    "index_channel": {"prompt": "Please send the new Index Channel ID (e.g., -1001234567890).", "type": int},
+    "max_tasks": {"prompt": "Please send the new max concurrent tasks value (e.g., 3).", "type": int},
+    "use_tvmaze": {"prompt": "Should TVMaze titles be used? Send `true` or `false`.", "type": bool},
+    "auth_chats": {"prompt": "Please send the new list of Authorized Chat IDs, separated by commas (e.g., 123,456).", "type": str}
+}
 
 async def settings_handler(client, message):
     """Handler for the /settings command."""
     try:
-        current_id = Config.INDEX_CHANNEL_ID if Config.INDEX_CHANNEL_ID != 0 else "Not Set"
-        
-        settings_text = (f"**Bot Settings**\n\n"
-                         f"Here you can manage the bot's configuration.\n\n"
-                         f"**Current Index Channel ID:** `{current_id}`")
+        # Build the text with all current settings
+        settings_text = (
+            f"**Bot Settings**\n\n"
+            f"Here you can manage the bot's configuration.\n\n"
+            f"**Current Settings:**\n"
+            f"- Index Channel ID: `{Config.INDEX_CHANNEL_ID or 'Not Set'}`\n"
+            f"- Max Concurrent Tasks: `{Config.MAX_CONCURRENT_TASKS}`\n"
+            f"- Use TVMaze Titles: `{Config.USE_TVMAZE_TITLES}`\n"
+            f"- Authorized Chats: `{Config.AUTHORIZED_CHATS or 'Not Set'}`"
+        )
         
         keyboard = build_settings_keyboard()
         await send_message(message, settings_text, keyboard)
@@ -26,41 +39,63 @@ async def settings_handler(client, message):
         LOGGER.error(f"Settings handler error: {e}")
         await send_message(message, f"❌ Error loading settings: {e}")
 
-async def set_index_channel_callback(client, callback_query):
-    """Handles the 'Set Index Channel' button press."""
+async def set_setting_callback(client, callback_query):
+    """Handles all 'Set' button presses from the settings menu."""
     user_id = callback_query.from_user.id
+    setting_key = callback_query.data.split("set_")[1] # e.g., "index_channel"
     
-    # Set the user's state to expect the next message to be the channel ID
-    USER_STATES[user_id] = "awaiting_index_channel"
-    
-    await callback_query.answer("Please send the new Index Channel ID.", show_alert=True)
-    await edit_message(callback_query.message, 
-                       (f"Okay, I'm ready for the new Index Channel ID.\n\n"
-                        f"Please send the ID now (e.g., `-1001234567890`)."))
+    if setting_key in SETTINGS:
+        state_info = SETTINGS[setting_key]
+        # Set the user's state to expect the next message for this specific setting
+        USER_STATES[user_id] = f"awaiting_{setting_key}"
+        
+        await callback_query.answer(state_info["prompt"], show_alert=True)
+        await edit_message(callback_query.message, f"Okay, I'm ready for the new value.\n\n{state_info['prompt']}")
 
-async def receive_channel_id_handler(client, message):
-    """Handles the message containing the new channel ID."""
+async def receive_setting_handler(client, message):
+    """Handles the message containing the new value for any setting."""
     user_id = message.from_user.id
-    new_id_text = message.text.strip()
+    new_value_text = message.text.strip()
+    
+    # Determine which setting we are waiting for
+    state = USER_STATES.get(user_id, "")
+    setting_key = state.replace("awaiting_", "")
+    
+    if setting_key not in SETTINGS:
+        return # Should not happen, but as a safeguard
+
+    setting_info = SETTINGS[setting_key]
     
     try:
-        # Validate that the ID is a valid integer
-        new_id = int(new_id_text)
-        
-        # A simple check to ensure it looks like a channel ID
-        if not new_id_text.startswith("-100"):
-            await send_message(message, "**Invalid ID:** Channel IDs should be negative and usually start with `-100`. Please try again.")
-            return
+        new_value = None
+        # Validate and convert the input based on the setting's type
+        if setting_info["type"] == int:
+            new_value = int(new_value_text)
+        elif setting_info["type"] == bool:
+            if new_value_text.lower() not in ["true", "false"]:
+                raise ValueError("Value must be 'true' or 'false'.")
+            new_value = new_value_text.lower() == "true"
+        else: # String
+            new_value = new_value_text
+
+        # Dynamically get the config attribute name (e.g., INDEX_CHANNEL_ID)
+        config_key_map = {
+            "index_channel": "INDEX_CHANNEL_ID",
+            "max_tasks": "MAX_CONCURRENT_TASKS",
+            "use_tvmaze": "USE_TVMAZE_TITLES",
+            "auth_chats": "AUTHORIZED_CHATS"
+        }
+        config_key = config_key_map[setting_key]
 
         # Update the config in memory
-        Config.set('INDEX_CHANNEL_ID', new_id)
+        Config.set(config_key, new_value)
         
-        await send_message(message, f"**Success!** Index Channel ID has been updated to `{new_id}`.")
+        await send_message(message, f"**Success!** `{config_key}` has been updated to `{new_value}`.")
         
-    except ValueError:
-        await send_message(message, "**Error:** That doesn't look like a valid number. Please send only the channel ID.")
+    except ValueError as e:
+        await send_message(message, f"**Error:** That doesn't look like a valid value. {e}. Please try again.")
     except Exception as e:
-        LOGGER.error(f"Error setting new channel ID: {e}")
+        LOGGER.error(f"Error setting new value: {e}")
         await send_message(message, "An unexpected error occurred. Please try again.")
     finally:
         # Clean up the user's state
