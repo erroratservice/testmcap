@@ -15,23 +15,28 @@ def format_series_post(title, data, total_episodes_map):
             season_data = data['seasons'][season_num_str]
             expected_eps = total_episodes_map.get(title, {}).get(season_num, len(season_data.get('episodes', [])))
             text += f"**Season {season_num}** ({expected_eps} Episodes)\n"
+            
             qualities = season_data.get('qualities', {})
-            for i, (quality_key, quality_data) in enumerate(qualities.items()):
-                prefix = "└─" if i == len(qualities) - 1 else "├─"
+            # --- FIX: New logic to format each encoder on a separate line ---
+            for quality_key, quality_data in qualities.items():
                 episodes_by_encoder = quality_data.get('episodes_by_encoder', {})
                 if not episodes_by_encoder: continue
-                details_parts = []
-                known_encoder_names = [enc for enc in episodes_by_encoder.keys() if enc != 'Unknown']
-                known_encoder_names.sort()
-                for encoder in known_encoder_names:
-                    ep_range = get_episode_range(sorted(episodes_by_encoder[encoder]))
-                    if ep_range: details_parts.append(f"({encoder}): {ep_range}")
+                
+                sorted_encoders = sorted([enc for enc in episodes_by_encoder.keys() if enc != 'Unknown'])
                 if 'Unknown' in episodes_by_encoder:
-                    ep_range = get_episode_range(sorted(episodes_by_encoder['Unknown']))
-                    if ep_range: details_parts.append(ep_range)
-                if not details_parts: continue
-                full_details_line = " | ".join(details_parts)
-                text += f"{prefix} **{quality_key}** {full_details_line}\n"
+                    sorted_encoders.append('Unknown')
+
+                for i, encoder in enumerate(sorted_encoders):
+                    prefix = "└─" if i == len(sorted_encoders) - 1 and list(qualities.keys())[-1] == quality_key else "├─"
+                    ep_range = get_episode_range(sorted(episodes_by_encoder[encoder]))
+                    
+                    if encoder == 'Unknown':
+                        details_line = f"**{quality_key}**: {ep_range}\n"
+                    else:
+                        details_line = f"**{quality_key}** ({encoder}): {ep_range}\n"
+
+                    text += f"{prefix} {details_line}"
+
     text += f"\nLast Updated: {datetime.now().strftime('%b %d, %Y %I:%M %p IST')}"
     return text
 
