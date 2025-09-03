@@ -29,7 +29,7 @@ class TgClient:
                 api_id=Config.TELEGRAM_API,
                 api_hash=Config.TELEGRAM_HASH,
                 bot_token=Config.BOT_TOKEN,
-                workers=8
+                workers=4
             )
             
             cls.user = Client(
@@ -37,7 +37,7 @@ class TgClient:
                 api_id=Config.TELEGRAM_API,
                 api_hash=Config.TELEGRAM_HASH,
                 session_string=Config.USER_SESSION_STRING,
-                workers=8
+                workers=4
             )
             
             await cls.bot.start()
@@ -48,11 +48,8 @@ class TgClient:
             user_info = await cls.user.get_me()
             LOGGER.info(f"User client started as @{user_info.username}")
             
-        except AuthKeyDuplicated:
-            LOGGER.error("Auth key duplicated. Please regenerate the user session string.")
-            raise
-        except UserDeactivated:
-            LOGGER.error("User account is deactivated. Check the user session.")
+        except (AuthKeyDuplicated, UserDeactivated, Unauthorized) as e:
+            LOGGER.error(f"Telegram authentication error: {e}. Please regenerate your user session string and restart the bot.")
             raise
         except Exception as e:
             LOGGER.error(f"Failed to initialize clients: {e}")
