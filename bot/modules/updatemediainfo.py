@@ -437,8 +437,8 @@ async def update_caption_clean(message, video_info, audio_tracks):
     try:
         current_caption = message.caption or ""
         
-        # More flexible regex to match "Video:" OR "Video -"
-        cleaned_caption = re.sub(r'\n\n(Video\s*[:\-].*\n?|Audio\s*[:\-].*)', '', current_caption, flags=re.IGNORECASE).strip()
+        # More robustly find the main caption, discarding all old mediainfo blocks
+        main_caption = current_caption.split('\n\n')[0].strip()
         
         mediainfo_lines = []
         
@@ -463,7 +463,7 @@ async def update_caption_clean(message, video_info, audio_tracks):
             return False
         
         mediainfo_section = "\n\n" + "\n".join(mediainfo_lines)
-        enhanced_caption = cleaned_caption + mediainfo_section
+        enhanced_caption = main_caption + mediainfo_section
         
         if len(enhanced_caption) > 1024:
             enhanced_caption = enhanced_caption[:1020] + "..."
@@ -495,10 +495,20 @@ async def has_media(msg):
 
 async def already_has_mediainfo(msg):
     caption = msg.caption or ""
-    # More flexible check for "Video:" OR "Video -"
-    video_present = re.search(r'Video\s*[:\-]', caption, re.IGNORECASE)
-    audio_present = re.search(r'Audio\s*[:\-]', caption, re.IGNORECASE)
-    return video_present and audio_present
+    # Smarter check to find duplicates and force a fix
+    video_tags = re.findall(r'Video\s*[:\-]', caption, re.IGNORECASE)
+    audio_tags = re.findall(r'Audio\s*[:\-]', caption, re.IGNORECASE)
+
+    # If there are duplicates, it needs fixing, so don't skip
+    if len(video_tags) > 1 or len(audio_tags) > 1:
+        return False
+
+    # If there's exactly one of each, it's complete, so skip
+    if len(video_tags) == 1 and len(audio_tags) == 1:
+        return True
+
+    # Otherwise, it's incomplete or empty, so process it
+    return False
 
 async def get_target_channels(message):
     """Correctly extracts the channel ID while ignoring known flags."""
