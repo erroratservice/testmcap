@@ -2,6 +2,7 @@
 Interactive settings command for updating various bot configurations.
 """
 
+import asyncio
 import logging
 from bot.core.config import Config
 from bot.helpers.message_utils import send_message, edit_message
@@ -39,6 +40,15 @@ async def settings_handler(client, message):
         LOGGER.error(f"Settings handler error: {e}")
         await send_message(message, f"❌ Error loading settings: {e}")
 
+async def timeout_task(user_id, message, state_to_check):
+    """A background task to handle settings timeout."""
+    await asyncio.sleep(60)
+    # If the user's state is still the same after 60 seconds, time them out.
+    if USER_STATES.get(user_id) == state_to_check:
+        if user_id in USER_STATES:
+            del USER_STATES[user_id]
+        await edit_message(message, "**Settings update timed out.**\nPlease use /settings to try again.")
+
 async def set_setting_callback(client, callback_query):
     """Handles all 'Set' button presses from the settings menu."""
     user_id = callback_query.from_user.id
@@ -46,11 +56,16 @@ async def set_setting_callback(client, callback_query):
     
     if setting_key in SETTINGS:
         state_info = SETTINGS[setting_key]
-        # Set the user's state to expect the next message for this specific setting
-        USER_STATES[user_id] = f"awaiting_{setting_key}"
+        state_to_set = f"awaiting_{setting_key}"
+        
+        # Set the user's state
+        USER_STATES[user_id] = state_to_set
+        
+        # Start the 60-second timeout task
+        asyncio.create_task(timeout_task(user_id, callback_query.message, state_to_set))
         
         await callback_query.answer(state_info["prompt"], show_alert=True)
-        await edit_message(callback_query.message, f"Okay, I'm ready for the new value.\n\n{state_info['prompt']}")
+        await edit_message(callback_query.message, f"Okay, I'm ready for the new value. (You have 60 seconds to reply)\n\n{state_info['prompt']}")
 
 async def receive_setting_handler(client, message):
     """Handles the message containing the new value for any setting."""
@@ -61,8 +76,16 @@ async def receive_setting_handler(client, message):
     state = USER_STATES.get(user_id, "")
     setting_key = state.replace("awaiting_", "")
     
+    # The timeout task will handle cleanup if the state is invalid,
+    # but we should still clear the state immediately upon receiving a valid reply.
+    if user_id in USER_STATES:
+        del USER_STATES[user_id]
+    else:
+        # If the state was already cleared (e.g., by a timeout), do nothing.
+        return
+
     if setting_key not in SETTINGS:
-        return # Should not happen, but as a safeguard
+        return
 
     setting_info = SETTINGS[setting_key]
     
@@ -93,11 +116,7 @@ async def receive_setting_handler(client, message):
         await send_message(message, f"**Success!** `{config_key}` has been updated to `{new_value}`.")
         
     except ValueError as e:
-        await send_message(message, f"**Error:** That doesn't look like a valid value. {e}. Please try again.")
+        await send_message(message, f"**Error:** That doesn't look like a valid value. {e}. Please use /settings to try again.")
     except Exception as e:
         LOGGER.error(f"Error setting new value: {e}")
-        await send_message(message, "An unexpected error occurred. Please try again.")
-    finally:
-        # Clean up the user's state
-        if user_id in USER_STATES:
-            del USER_STATES[user_id]
+        await send_message(message, "An unexpected error occurred. Please use /settings to try again.")
