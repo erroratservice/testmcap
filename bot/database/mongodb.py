@@ -204,5 +204,23 @@ class MongoDB:
         return []
 
     @classmethod
+    async def set_scan_flood_wait(cls, scan_id, end_time):
+        """Sets a timestamp until which a scan is in flood wait."""
+        if cls.task_collection is not None:
+            await cls.task_collection.update_one(
+                {'_id': scan_id},
+                {'$set': {'flood_wait_until': end_time}}
+            )
+
+    @classmethod
+    async def clear_scan_flood_wait(cls, scan_id):
+        """Clears the flood wait status from a scan."""
+        if cls.task_collection is not None:
+            await cls.task_collection.update_one(
+                {'_id': scan_id},
+                {'$unset': {'flood_wait_until': ""}}
+            )
+
+    @classmethod
     async def clear_all_scans(cls):
         if cls.task_collection is not None: await cls.task_collection.delete_many({'type': 'active_scan'})
