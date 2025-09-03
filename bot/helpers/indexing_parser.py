@@ -24,7 +24,7 @@ KNOWN_ENCODERS = {
     'HDX', 'DEFLATE', 'TERMiNAL', 'PTP', 'ROKiT', 'SWTYBLZ', 'HOMELANDER',
     'TombDoc', 'Walter', 'RZEROX', 'V3SP4EV3R',
     # User additions
-    'Silence', 'ivy', 'DaddyCooL', 'KONTRAST', 'vyndros', 'SAON', 'DUST', 
+    'Silence', 'ivy', 'DaddyCooL', 'KONTRAST', 'vyndros', 'SAON', 'DUST',
     'BigJ0554', 'dAV1nci'
 }
 
@@ -51,7 +51,7 @@ def parse_media_info(filename, caption=None):
     Intelligently parses media info and enriches it with TVMaze data.
     """
     base_name, is_split = get_base_name(filename)
-    
+
     # --- Step 1: Initial Parsing ---
     filename_info = extract_info_from_text(base_name)
     caption_info = extract_info_from_text(caption or "")
@@ -60,7 +60,7 @@ def parse_media_info(filename, caption=None):
         return None
 
     final_info = filename_info.copy()
-    
+
     # --- Step 2: Merge Quality and Codec ---
     safe_caption_info = caption_info or {}
     final_info['quality'] = safe_caption_info.get('quality', final_info.get('quality', 'Unknown'))
@@ -80,7 +80,6 @@ def parse_media_info(filename, caption=None):
                 official_title = final_info['title']
 
             # FIX: Add all words from the official title to an exclusion list
-            # This is much more reliable for preventing incorrect encoder detection
             for word in re.split(r'[\s._-]+', official_title.upper()):
                 words_to_exclude.add(word)
 
@@ -97,7 +96,7 @@ def parse_media_info(filename, caption=None):
                             for word in re.split(r'[\s._-]+', episode_title.upper()):
                                 words_to_exclude.add(word)
                         break
-    
+
     # --- Step 4: Robust Encoder Detection ---
     filename_encoder = get_encoder(base_name, words_to_exclude)
     caption_encoder = safe_caption_info.get('encoder', 'Unknown')
@@ -106,7 +105,7 @@ def parse_media_info(filename, caption=None):
     # --- Step 5: Finalize and Add Canonical Title ---
     if 'title' in final_info:
         final_info['canonical_title'] = _get_canonical_title(final_info['title'])
-    
+
     final_info['is_split'] = is_split
     final_info['base_name'] = base_name
 
@@ -134,31 +133,46 @@ def extract_info_from_text(text):
     if not text:
         return None
 
-    # FIX: More robust series pattern to handle different formats
-    series_pattern = re.compile(
-        r'(.+?)[ ._\[\(-]'
-        r'[sS](\d{1,2})'
-        r'[ ._]?[eE](\d{1,3})'
-        r'(?:-[eE]?(\d{1,3}))?',
-        re.IGNORECASE
-    )
-    series_match_alt = re.search(r'(.+?)[ ._\[\(-](\d{1,2})x(\d{1,3})', text, re.IGNORECASE) # For 1x01 format
-    movie_pattern = re.compile(r'(.+?)[ ._\[\(](\d{4})[ ._\]\)]', re.IGNORECASE)
+    # FIX: Remove decorative tags like "Vol. 01" before parsing
+    cleaned_text = re.sub(r'[._\s]Vol[\s._]\d+', ' ', text, flags=re.IGNORECASE)
 
-    series_match = series_pattern.search(text) or series_match_alt
-    movie_match = movie_pattern.search(text)
+    # FIX: More robust series patterns to handle multiple formats
+    patterns = [
+        # S01E01, S01.E01, S01-E01
+        re.compile(r'(.+?)[ ._\[\(-][sS](\d{1,2})[ ._]?[eE](\d{1,3})(?:-[eE]?(\d{1,3}))?', re.IGNORECASE),
+        # EP01 (with season)
+        re.compile(r'(.+?)[ ._\[\(-][sS](\d{1,2})[ ._]?EP(\d{1,3})', re.IGNORECASE),
+        # EP01 (without season - assumes S01)
+        re.compile(r'(.+?)[ ._\[\(]EP(\d{1,3})', re.IGNORECASE)
+    ]
+
+    series_match = None
+    is_seasonless = False
+    for pattern in patterns:
+        series_match = pattern.search(cleaned_text)
+        if series_match:
+            if 'EP' in pattern.pattern and 'sS' not in pattern.pattern:
+                is_seasonless = True
+            break
+            
+    movie_pattern = re.compile(r'(.+?)[ ._\[\(](\d{4})[ ._\]\)]', re.IGNORECASE)
+    movie_match = movie_pattern.search(cleaned_text)
     
-    quality = get_quality(text)
-    codec = get_codec(text)
-    encoder = get_encoder(text)
+    quality = get_quality(cleaned_text)
+    codec = get_codec(cleaned_text)
+    encoder = get_encoder(cleaned_text)
 
     if series_match:
-        if series_match_alt and not series_pattern.search(text):
-             title_part, season_str, start_ep_str = series_match.groups()
-             end_ep_str = None
+        if is_seasonless:
+            title_part, start_ep_str = series_match.groups()
+            season_str = "1" # Assume Season 1
+            end_ep_str = None
+        elif 'EP' in series_match.re.pattern:
+            title_part, season_str, start_ep_str = series_match.groups()
+            end_ep_str = None
         else:
             title_part, season_str, start_ep_str, end_ep_str = series_match.groups()
-        
+
         title = re.sub(r'[\._]', ' ', title_part).strip().title()
         season = int(season_str)
         start_ep = int(start_ep_str)
