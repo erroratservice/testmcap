@@ -28,6 +28,7 @@ class Config:
     CMD_SUFFIX = None
     AUTHOR_NAME = None
     AUTHOR_URL = None
+    USE_TVMAZE_TITLES = None # New setting
     
     @classmethod
     def load(cls):
@@ -53,6 +54,8 @@ class Config:
         cls.CMD_SUFFIX = os.getenv('CMD_SUFFIX', '')
         cls.AUTHOR_NAME = os.getenv('AUTHOR_NAME', 'Media Indexer Bot')
         cls.AUTHOR_URL = os.getenv('AUTHOR_URL', 'https://t.me/MediaIndexerBot')
+        # Add the new setting
+        cls.USE_TVMAZE_TITLES = os.getenv('USE_TVMAZE_TITLES', 'True').lower() == 'true'
 
     @classmethod
     def set(cls, key, value):
