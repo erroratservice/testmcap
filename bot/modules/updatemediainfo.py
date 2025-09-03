@@ -474,6 +474,8 @@ async def update_caption_clean(message, video_info, audio_tracks):
         await TgClient.user.edit_message_caption(
             chat_id=message.chat.id, message_id=message.id, caption=enhanced_caption
         )
+        # --- FIX: Add a small sleep after a successful edit ---
+        await asyncio.sleep(2)
         return True
     except MessageNotModified:
         return False
