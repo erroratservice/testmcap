@@ -34,7 +34,7 @@ FFPROBE_TIMEOUT = 60
 DOWNLOAD_TIMEOUT = 1800  # 30 minutes
 
 # Regex to detect split files like .mkv.001, .001.mkv, and ...part001.mkv
-SPLIT_FILE_REGEX = re.compile(r'(\.(mkv|mp4|avi|mov)\.\d{3}|\.\d{3}\.(mkv|mp4|avi|mov)|\.part\d+\.(mkv|mp4|avi|mov))$', re.IGNORECASE)
+SPLIT_FILE_REGEX = re.compile(r'(\.(mkv|mp4|avi|mov)\.00[1-9]|\.00[1-9]\.(mkv|mp4|avi|mov)|\.part00[1-9]\.(mkv|mp4|avi|mov))$', re.IGNORECASE)
 
 async def updatemediainfo_handler(client, message):
     """Handler that initiates a concurrent scan."""
