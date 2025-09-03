@@ -6,6 +6,7 @@ import psutil
 import shutil
 import aiofiles
 from bot.helpers.message_utils import send_reply
+from bot.core.client import TgClient # Import TgClient to send files
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,23 +23,20 @@ def format_bytes(byte_count):
     return f"{byte_count:.2f} {power_labels[n]}B"
 
 async def log_handler(client, message):
-    """Handler for the /log command to show the bot's log."""
+    """Handler for the /log command to send the full log file."""
     try:
-        async with aiofiles.open('log.txt', 'r') as f:
-            lines = await f.readlines()
-            last_lines = "".join(lines[-20:])  # Get the last 20 lines
-        
-        if not last_lines:
-            await send_reply(message, "Log file is empty.")
-            return
-            
-        await send_reply(message, f"**Last 20 lines of log:**\n\n`{last_lines}`")
+        # Use the bot client to send the log file as a document
+        await TgClient.bot.send_document(
+            chat_id=message.chat.id,
+            document="log.txt",
+            caption="Here is the full bot log file."
+        )
 
     except FileNotFoundError:
         await send_reply(message, "Log file not found. Make sure logging is configured correctly.")
     except Exception as e:
         LOGGER.error(f"Log handler error: {e}")
-        await send_reply(message, f"Error reading log file: {e}")
+        await send_reply(message, f"Error sending log file: {e}")
 
 async def stats_handler(client, message):
     """Handler for the /stats command to show server resource usage."""
@@ -56,7 +54,6 @@ async def stats_handler(client, message):
         disk = shutil.disk_usage('/')
         disk_total = format_bytes(disk.total)
         disk_used = format_bytes(disk.used)
-        # --- FIX: Calculate disk percent manually ---
         disk_percent = round((disk.used / disk.total) * 100)
         
         # Network Usage
