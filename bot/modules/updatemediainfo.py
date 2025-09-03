@@ -7,6 +7,7 @@ import logging
 import os
 import json
 import re
+import time
 from aiofiles import open as aiopen
 from aiofiles.os import remove as aioremove
 from asyncio.exceptions import TimeoutError
@@ -242,8 +243,13 @@ async def process_message_full_download_only(client, message):
             await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT)
         except FloodWait as e:
             flood_wait_event.clear()
+            scan_id = [key for key, task in ACTIVE_TASKS.items() if task is asyncio.current_task()][0]
+            await MongoDB.set_scan_flood_wait(scan_id, time.time() + e.value)
+            
             LOGGER.warning(f"FloodWait of {e.value}s on message {message.id}. Pausing ALL tasks...")
             await asyncio.sleep(e.value + 5)
+            
+            await MongoDB.clear_scan_flood_wait(scan_id)
             LOGGER.info(f"Resuming ALL tasks after flood wait.")
             flood_wait_event.set()
             await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT) # Retry download
@@ -306,8 +312,13 @@ async def process_message_enhanced(client, message):
                             return True, f"chunk{CHUNK_STEPS[0]}"
         except FloodWait as e:
             flood_wait_event.clear()
+            scan_id = [key for key, task in ACTIVE_TASKS.items() if task is asyncio.current_task()][0]
+            await MongoDB.set_scan_flood_wait(scan_id, time.time() + e.value)
+            
             LOGGER.warning(f"FloodWait of {e.value}s on message {message.id}. Pausing ALL tasks...")
             await asyncio.sleep(e.value + 5)
+            
+            await MongoDB.clear_scan_flood_wait(scan_id)
             LOGGER.info(f"Resuming ALL tasks after flood wait.")
             flood_wait_event.set()
         except TimeoutError:
@@ -474,7 +485,6 @@ async def update_caption_clean(message, video_info, audio_tracks):
         await TgClient.user.edit_message_caption(
             chat_id=message.chat.id, message_id=message.id, caption=enhanced_caption
         )
-        # --- FIX: Add a small sleep after a successful edit ---
         await asyncio.sleep(2)
         return True
     except MessageNotModified:
