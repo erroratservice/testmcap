@@ -12,9 +12,9 @@ from bot.helpers.auth_filters import AuthFilters
 from bot.modules.updatemediainfo import updatemediainfo_handler
 from bot.modules.indexfiles import indexfiles_handler
 from bot.modules.status import status_handler
-from bot.modules.settings import settings_handler, set_index_channel_callback, receive_channel_id_handler
+# Import the new generic handler
+from bot.modules.settings import settings_handler, set_setting_callback, receive_setting_handler
 from bot.modules.help import help_handler
-# Import the new handlers
 from bot.modules.utils import log_handler, stats_handler
 from bot.core.tasks import ACTIVE_TASKS, USER_STATES
 
@@ -30,9 +30,9 @@ async def start_handler(client, message):
 • `/updatemediainfo` - Enhance video captions with MediaInfo
 • `/indexfiles` - Create organized content indexes
 • `/status` - View processing progress
-• `/settings` - Set the destination channel for the index
+• `/settings` - Configure all bot settings dynamically
 • `/help` - Detailed help
-• `/log` - View recent bot logs
+• `/log` - Get the full bot log file
 • `/stats` - Check server resource usage
 
 **Ready to index your media content!**"""
@@ -61,11 +61,10 @@ def register_handlers():
     """Register all command and callback handlers with Pyrofork"""
     bot = TgClient.bot
     
-    # --- MODIFIED: Added a safety check to the filter ---
-    async def awaiting_channel_id_filter(_, __, message):
-        # Ensure the message is from a user before checking their state
+    # --- FIX: More generic filter to check for any awaiting state ---
+    async def awaiting_input_filter(_, __, message):
         if message.from_user:
-            return USER_STATES.get(message.from_user.id) == "awaiting_index_channel"
+            return USER_STATES.get(message.from_user.id, "").startswith("awaiting_")
         return False
 
     # Command Handlers
@@ -76,11 +75,10 @@ def register_handlers():
         MessageHandler(status_handler, filters.command("status") & AuthFilters.authorized),
         MessageHandler(settings_handler, filters.command("settings") & AuthFilters.authorized),
         MessageHandler(help_handler, filters.command("help") & AuthFilters.authorized),
-        # Add the new handlers here
         MessageHandler(log_handler, filters.command("log") & AuthFilters.authorized),
         MessageHandler(stats_handler, filters.command("stats") & AuthFilters.authorized),
-        # This handler will now only be triggered for messages from users in the correct state
-        MessageHandler(receive_channel_id_handler, filters.create(awaiting_channel_id_filter) & AuthFilters.authorized & filters.private)
+        # This one generic handler will now catch replies for all settings
+        MessageHandler(receive_setting_handler, filters.create(awaiting_input_filter) & AuthFilters.authorized & filters.private)
     ]
     
     for handler in command_handlers:
@@ -89,7 +87,8 @@ def register_handlers():
     # Callback Query Handlers
     callback_handlers = [
         CallbackQueryHandler(cancel_task_callback, filters.regex("^cancel_")),
-        CallbackQueryHandler(set_index_channel_callback, filters.regex("^set_index_channel$")),
+        # This one generic handler will now catch all "set" buttons
+        CallbackQueryHandler(set_setting_callback, filters.regex("^set_")),
     ]
 
     for handler in callback_handlers:
