@@ -98,7 +98,7 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
 
         async def worker(msg):
             async with semaphore:
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(3)
                 await flood_wait_event.wait()
 
                 media = msg.video or msg.document
@@ -186,7 +186,7 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
                 stats["skipped"] += 1
                 return
             async with semaphore:
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(3)
                 await flood_wait_event.wait()
                 LOGGER.info(f"Force-processing media message {msg.id} in channel {channel_id}")
                 success, _ = await process_message_full_download_only(TgClient.user, msg)
@@ -502,7 +502,7 @@ async def update_caption_clean(message, video_info, audio_tracks):
         await TgClient.user.edit_message_caption(
             chat_id=message.chat.id, message_id=message.id, caption=enhanced_caption
         )
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)
         return True
     except MessageNotModified:
         return False
