@@ -113,7 +113,7 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
 
                 LOGGER.info(f"Processing media message {msg.id} in {chat.title}")
                 try:
-                    success, _ = await process_message_enhanced(TgClient.user, msg)
+                    success, _ = await process_message_enhanced(msg)
                     if success:
                         stats["processed"] += 1
                     else:
@@ -189,7 +189,7 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
                 await asyncio.sleep(5)
                 await flood_wait_event.wait()
                 LOGGER.info(f"Force-processing media message {msg.id} in channel {channel_id}")
-                success, _ = await process_message_full_download_only(TgClient.user, msg)
+                success, _ = await process_message_full_download_only(msg)
                 if success:
                     stats["processed"] += 1
                 else:
@@ -222,7 +222,7 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
         ACTIVE_TASKS.pop(scan_id, None)
 
 
-async def process_message_full_download_only(client, message):
+async def process_message_full_download_only(message):
     """A simplified processor that only attempts a full download with ffprobe fallback."""
     temp_file = None
     try:
@@ -236,7 +236,7 @@ async def process_message_full_download_only(client, message):
 
         try:
             await flood_wait_event.wait()
-            await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT)
+            await asyncio.wait_for(TgClient.bot.download_media(message, file_name=temp_file), timeout=DOWNLOAD_TIMEOUT)
         except FloodWait as e:
             flood_wait_event.clear()
             LOGGER.warning(f"FloodWait of {e.value}s on message {message.id}. Pausing ALL tasks...")
@@ -286,7 +286,7 @@ async def process_message_full_download_only(client, message):
     finally:
         await cleanup_files([temp_file])
 
-async def process_message_enhanced(client, message):
+async def process_message_enhanced(message):
     """Process message with an optimized chunk strategy and ffprobe fallback."""
     temp_file = None
     try:
@@ -304,7 +304,7 @@ async def process_message_enhanced(client, message):
             await flood_wait_event.wait()
             async with aiopen(temp_file, "wb") as f:
                 chunk_count = 0
-                async for chunk in client.stream_media(message, limit=CHUNK_STEPS[0]):
+                async for chunk in TgClient.bot.stream_media(message, limit=CHUNK_STEPS[0]):
                     await f.write(chunk)
                     chunk_count += 1
             
@@ -347,7 +347,7 @@ async def process_message_enhanced(client, message):
         if file_size <= FULL_DOWNLOAD_LIMIT:
             try:
                 await flood_wait_event.wait()
-                await asyncio.wait_for(message.download(temp_file), timeout=DOWNLOAD_TIMEOUT)
+                await asyncio.wait_for(TgClient.bot.download_media(message, file_name=temp_file), timeout=DOWNLOAD_TIMEOUT)
                 
                 metadata = await extract_mediainfo_from_file(temp_file)
                 video_info, audio_tracks = None, []
