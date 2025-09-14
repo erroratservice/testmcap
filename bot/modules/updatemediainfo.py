@@ -1,5 +1,5 @@
 """
-High-performance, concurrent MediaInfo processing module with enhanced error logging.
+High-performance, concurrent MediaInfo processing module with an ID-based batching strategy.
 """
 
 import asyncio
@@ -18,7 +18,8 @@ from bot.helpers.message_utils import send_message, send_reply
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
-from bot.helpers.channel_utils import stream_history_for_processing
+# --- CRITICAL: Import the new, improved message streaming function ---
+from bot.helpers.channel_utils import stream_messages_by_id_batches
 
 LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +39,6 @@ SPLIT_FILE_REGEX = re.compile(r'(\.(mkv|mp4|avi|mov)\.00[1-9]|\.00[1-9]\.(mkv|mp
 
 async def updatemediainfo_handler(client, message):
     """Handler that initiates a concurrent scan."""
-    # Reset the event at the start of a new command
     flood_wait_event.set()
     try:
         if MongoDB.db is None:
@@ -81,7 +81,7 @@ async def progress_updater(scan_id, stats, stop_event):
         await asyncio.sleep(10)
 
 async def process_channel_concurrently(channel_id, message, scan_id, force=False):
-    """Processes a channel by streaming messages and running file tasks concurrently."""
+    """Processes a channel by streaming messages via ID batches and running file tasks concurrently."""
     user_id = message.from_user.id
     chat = None
 
@@ -125,7 +125,8 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
                     raise
 
         processed_count = 0
-        async for message_batch in stream_history_for_processing(channel_id, force=force):
+        # --- CRITICAL: Use the new ID-based batch streamer ---
+        async for message_batch in stream_messages_by_id_batches(channel_id, force=force):
             if not message_batch:
                 continue
 
@@ -158,6 +159,10 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
     finally:
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)
+
+# --- The rest of the file (force_process_channel_concurrently, process_message_enhanced, etc.)
+# --- remains the same as the previous version, as it already contains the correct
+# --- dual-session logic for downloading and editing. No further changes are needed there.
 
 async def force_process_channel_concurrently(channel_id, message, scan_id):
     """Concurrently processes only the failed message IDs stored in the database."""
@@ -223,7 +228,7 @@ async def force_process_channel_concurrently(channel_id, message, scan_id):
 
 
 async def process_message_full_download_only(message):
-    """A simplified processor that only attempts a full download with ffprobe fallback."""
+    """A simplified processor that only attempts a full download using the BOT session."""
     temp_file = None
     try:
         media = message.video or message.audio or message.document
@@ -287,7 +292,7 @@ async def process_message_full_download_only(message):
         await cleanup_files([temp_file])
 
 async def process_message_enhanced(message):
-    """Process message with an optimized chunk strategy and ffprobe fallback."""
+    """Process message with chunking using BOT session and ffprobe fallback."""
     temp_file = None
     try:
         media = message.video or message.audio or message.document
@@ -376,6 +381,7 @@ async def process_message_enhanced(message):
     finally:
         await cleanup_files([temp_file])
 
+
 async def extract_mediainfo_from_file(file_path):
     try:
         proc = await asyncio.create_subprocess_shell(
@@ -459,13 +465,11 @@ def parse_essential_metadata(metadata):
 
 async def update_caption_clean(message, video_info, audio_tracks):
     """
-    Intelligently updates captions, adding only missing information
-    and cleaning old mediainfo sections.
+    Intelligently updates captions using the USER session.
     """
     try:
         current_caption = message.caption or ""
         
-        # More robustly find the main caption, discarding all old mediainfo blocks
         main_caption = current_caption.split('\n\n')[0].strip()
         
         mediainfo_lines = []
@@ -524,19 +528,12 @@ async def has_media(msg):
 
 async def already_has_mediainfo(msg):
     caption = msg.caption or ""
-    # Smarter check to find duplicates and force a fix
     video_tags = re.findall(r'Video\s*[:\-]', caption, re.IGNORECASE)
     audio_tags = re.findall(r'Audio\s*[:\-]', caption, re.IGNORECASE)
-
-    # If there are duplicates, it needs fixing, so don't skip
     if len(video_tags) > 1 or len(audio_tags) > 1:
         return False
-
-    # If there's exactly one of each, it's complete, so skip
     if len(video_tags) == 1 and len(audio_tags) == 1:
         return True
-
-    # Otherwise, it's incomplete or empty, so process it
     return False
 
 async def get_target_channels(message):
