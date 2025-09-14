@@ -18,7 +18,7 @@ from bot.helpers.message_utils import send_message, send_reply
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
-# --- CRITICAL: Import the new, improved message streaming function ---
+# --- FIX: Import the correct, new message streaming function ---
 from bot.helpers.channel_utils import stream_messages_by_id_batches
 
 LOGGER = logging.getLogger(__name__)
@@ -125,7 +125,7 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
                     raise
 
         processed_count = 0
-        # --- CRITICAL: Use the new ID-based batch streamer ---
+        # --- Use the new ID-based batch streamer ---
         async for message_batch in stream_messages_by_id_batches(channel_id, force=force):
             if not message_batch:
                 continue
@@ -159,10 +159,6 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
     finally:
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)
-
-# --- The rest of the file (force_process_channel_concurrently, process_message_enhanced, etc.)
-# --- remains the same as the previous version, as it already contains the correct
-# --- dual-session logic for downloading and editing. No further changes are needed there.
 
 async def force_process_channel_concurrently(channel_id, message, scan_id):
     """Concurrently processes only the failed message IDs stored in the database."""
@@ -380,7 +376,6 @@ async def process_message_enhanced(message):
         return False, "error"
     finally:
         await cleanup_files([temp_file])
-
 
 async def extract_mediainfo_from_file(file_path):
     try:
