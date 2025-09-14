@@ -1,5 +1,5 @@
 """
-High-performance, concurrent MediaInfo processing module with an ID-based batching strategy.
+High-performance, concurrent MediaInfo processing module with enhanced error logging and FloodWait session debugging.
 """
 
 import asyncio
@@ -18,7 +18,6 @@ from bot.helpers.message_utils import send_message, send_reply
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
-# --- FIX: Import the correct, new message streaming function ---
 from bot.helpers.channel_utils import stream_messages_by_id_batches
 
 LOGGER = logging.getLogger(__name__)
@@ -125,7 +124,6 @@ async def process_channel_concurrently(channel_id, message, scan_id, force=False
                     raise
 
         processed_count = 0
-        # --- Use the new ID-based batch streamer ---
         async for message_batch in stream_messages_by_id_batches(channel_id, force=force):
             if not message_batch:
                 continue
@@ -239,8 +237,9 @@ async def process_message_full_download_only(message):
             await flood_wait_event.wait()
             await asyncio.wait_for(TgClient.bot.download_media(message, file_name=temp_file), timeout=DOWNLOAD_TIMEOUT)
         except FloodWait as e:
+            # --- DEBUG LOGGING ADDED ---
+            LOGGER.warning(f"BOT session FloodWait of {e.value}s on message {message.id} during full download. Pausing ALL tasks...")
             flood_wait_event.clear()
-            LOGGER.warning(f"FloodWait of {e.value}s on message {message.id}. Pausing ALL tasks...")
 
             scan_id_list = [key for key, task in ACTIVE_TASKS.items() if task is asyncio.current_task()]
             scan_id = scan_id_list[0] if scan_id_list else None
@@ -318,8 +317,9 @@ async def process_message_enhanced(message):
                             await cleanup_files([temp_file])
                             return True, f"chunk{CHUNK_STEPS[0]}"
         except FloodWait as e:
+            # --- DEBUG LOGGING ADDED ---
+            LOGGER.warning(f"BOT session FloodWait of {e.value}s on message {message.id} during chunk stream. Pausing ALL tasks...")
             flood_wait_event.clear()
-            LOGGER.warning(f"FloodWait of {e.value}s on message {message.id}. Pausing ALL tasks...")
 
             scan_id_list = [key for key, task in ACTIVE_TASKS.items() if task is asyncio.current_task()]
             scan_id = scan_id_list[0] if scan_id_list else None
@@ -377,6 +377,68 @@ async def process_message_enhanced(message):
     finally:
         await cleanup_files([temp_file])
 
+async def update_caption_clean(message, video_info, audio_tracks):
+    """
+    Intelligently updates captions using the USER session, with specific FloodWait logging.
+    """
+    try:
+        current_caption = message.caption or ""
+        
+        main_caption = current_caption.split('\n\n')[0].strip()
+        
+        mediainfo_lines = []
+        
+        if video_info and video_info.get("codec"):
+            codec, height = video_info["codec"], video_info.get("height")
+            quality = ""
+            if height:
+                if height >= 2160: quality = "4K"
+                elif height >= 1080: quality = "1080p"
+                elif height >= 720: quality = "720p"
+                else: quality = f"{height}p"
+            video_line = f"Video: {codec.upper()} {quality}".strip()
+            mediainfo_lines.append(video_line)
+        
+        if audio_tracks:
+            languages = sorted(list(set(t['language'] for t in audio_tracks if t['language'])))
+            audio_line = f"Audio: {len(audio_tracks)}"
+            if languages: audio_line += f" ({', '.join(languages)})"
+            mediainfo_lines.append(audio_line)
+        
+        if not mediainfo_lines: 
+            return False
+        
+        mediainfo_section = "\n\n" + "\n".join(mediainfo_lines)
+        enhanced_caption = main_caption + mediainfo_section
+        
+        if len(enhanced_caption) > 1024:
+            enhanced_caption = enhanced_caption[:1020] + "..."
+        
+        if current_caption == enhanced_caption: 
+            return False
+        
+        await TgClient.user.edit_message_caption(
+            chat_id=message.chat.id, message_id=message.id, caption=enhanced_caption
+        )
+        await asyncio.sleep(5)
+        return True
+    except MessageNotModified:
+        return False
+    except FloodWait as e:
+        # --- DEBUG LOGGING ADDED ---
+        LOGGER.warning(f"USER session FloodWait of {e.value}s on message {message.id} during caption edit. Pausing ALL tasks...")
+        flood_wait_event.clear()
+        await asyncio.sleep(e.value + 5)
+        flood_wait_event.set()
+        LOGGER.info("Resuming ALL tasks after flood wait.")
+        # Return False as the edit failed this time
+        return False
+    except Exception as e:
+        LOGGER.error(f"Caption update error for message {message.id}: {e}")
+        return False
+
+# --- The rest of the helper functions remain unchanged ---
+
 async def extract_mediainfo_from_file(file_path):
     try:
         proc = await asyncio.create_subprocess_shell(
@@ -390,7 +452,6 @@ async def extract_mediainfo_from_file(file_path):
         return None
 
 async def extract_metadata_with_ffprobe(file_path):
-    """Extract media metadata using ffprobe."""
     try:
         command = [
             'ffprobe',
@@ -412,7 +473,6 @@ async def extract_metadata_with_ffprobe(file_path):
         return None
 
 def parse_ffprobe_metadata(metadata):
-    """Parse ffprobe JSON output into the bot's standard format."""
     try:
         video_info, audio_tracks = None, []
         streams = metadata.get("streams", [])
@@ -458,57 +518,6 @@ def parse_essential_metadata(metadata):
         LOGGER.error(f"Metadata parsing error: {e}")
         return None, []
 
-async def update_caption_clean(message, video_info, audio_tracks):
-    """
-    Intelligently updates captions using the USER session.
-    """
-    try:
-        current_caption = message.caption or ""
-        
-        main_caption = current_caption.split('\n\n')[0].strip()
-        
-        mediainfo_lines = []
-        
-        if video_info and video_info.get("codec"):
-            codec, height = video_info["codec"], video_info.get("height")
-            quality = ""
-            if height:
-                if height >= 2160: quality = "4K"
-                elif height >= 1080: quality = "1080p"
-                elif height >= 720: quality = "720p"
-                else: quality = f"{height}p"
-            video_line = f"Video: {codec.upper()} {quality}".strip()
-            mediainfo_lines.append(video_line)
-        
-        if audio_tracks:
-            languages = sorted(list(set(t['language'] for t in audio_tracks if t['language'])))
-            audio_line = f"Audio: {len(audio_tracks)}"
-            if languages: audio_line += f" ({', '.join(languages)})"
-            mediainfo_lines.append(audio_line)
-        
-        if not mediainfo_lines: 
-            return False
-        
-        mediainfo_section = "\n\n" + "\n".join(mediainfo_lines)
-        enhanced_caption = main_caption + mediainfo_section
-        
-        if len(enhanced_caption) > 1024:
-            enhanced_caption = enhanced_caption[:1020] + "..."
-        
-        if current_caption == enhanced_caption: 
-            return False
-        
-        await TgClient.user.edit_message_caption(
-            chat_id=message.chat.id, message_id=message.id, caption=enhanced_caption
-        )
-        await asyncio.sleep(5)
-        return True
-    except MessageNotModified:
-        return False
-    except Exception as e:
-        LOGGER.error(f"Caption update error for message {message.id}: {e}")
-        return False
-
 async def cleanup_files(file_paths):
     for file_path in file_paths:
         try:
@@ -532,7 +541,6 @@ async def already_has_mediainfo(msg):
     return False
 
 async def get_target_channels(message):
-    """Correctly extracts the channel ID while ignoring known flags."""
     known_flags = ['-rescan', '-f']
     args = [arg for arg in message.command[1:] if arg not in known_flags]
     
