@@ -31,7 +31,7 @@ async def stream_history_for_processing(channel_id, force=False):
     
     try:
         total_messages_processed = 0
-        async for message in TgClient.user.get_chat_history(chat_id=channel_id):
+        async for message in TgClient.bot.get_chat_history(chat_id=channel_id):
             total_messages_processed += 1
             if not force and message.id in cached_ids:
                 continue
