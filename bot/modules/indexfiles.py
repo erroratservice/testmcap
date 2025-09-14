@@ -14,7 +14,7 @@ from bot.helpers.formatters import format_series_post, format_movie_post
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
-# --- CRITICAL: Import the new, improved message streaming function ---
+# --- FIX: Import the correct, new message streaming function ---
 from bot.helpers.channel_utils import stream_messages_by_id_batches
 
 LOGGER = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
         skipped_count = 0
         processed_messages_count = 0
         
-        # --- CRITICAL: Use the new ID-based batch streamer ---
+        # --- Use the new ID-based batch streamer ---
         async for message_batch in stream_messages_by_id_batches(channel_id, force=force):
             if not message_batch:
                 continue
@@ -146,9 +146,6 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
     finally:
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)
-
-# --- The rest of the file (process_batch, update_or_create_post, etc.) remains unchanged
-# --- as the posting logic is already correct.
 
 async def process_batch(media_map, channel_id):
     """Aggregates and updates posts for a batch of collected media."""
