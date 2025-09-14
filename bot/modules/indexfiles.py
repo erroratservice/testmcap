@@ -1,5 +1,5 @@
 """
-Advanced index files command with a batched processing system for movies and series.
+Advanced index files command with a batched, ID-based processing system for movies and series.
 """
 import logging
 import asyncio
@@ -14,7 +14,8 @@ from bot.helpers.formatters import format_series_post, format_movie_post
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
-from bot.helpers.channel_utils import stream_history_for_processing
+# --- CRITICAL: Import the new, improved message streaming function ---
+from bot.helpers.channel_utils import stream_messages_by_id_batches
 
 LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ async def indexfiles_handler(client, message):
         await send_message(message, f"**Error:** {e}")
 
 async def create_channel_index(channel_id, message, scan_id, force=False):
-    """The main indexing process with split file handling."""
+    """The main indexing process with split file handling using the new ID-based streamer."""
     user_id = message.from_user.id
     chat = None
     
@@ -74,7 +75,8 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
         skipped_count = 0
         processed_messages_count = 0
         
-        async for message_batch in stream_history_for_processing(channel_id, force=force):
+        # --- CRITICAL: Use the new ID-based batch streamer ---
+        async for message_batch in stream_messages_by_id_batches(channel_id, force=force):
             if not message_batch:
                 continue
 
@@ -110,7 +112,6 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
                         total_size = sum(part.document.file_size for part in msg_group if part.document)
                         parsed['file_size'] = total_size
                         parsed['msg_id'] = first_msg.id
-                        # THIS IS THE FIX: Group by the normalized canonical_title
                         collection_key = parsed['canonical_title']
                         media_map[collection_key].append(parsed)
                     else:
@@ -146,10 +147,12 @@ async def create_channel_index(channel_id, message, scan_id, force=False):
         await MongoDB.end_scan(scan_id)
         ACTIVE_TASKS.pop(scan_id, None)
 
+# --- The rest of the file (process_batch, update_or_create_post, etc.) remains unchanged
+# --- as the posting logic is already correct.
+
 async def process_batch(media_map, channel_id):
     """Aggregates and updates posts for a batch of collected media."""
     for canonical_title, items in media_map.items():
-        # Use the title from the first item for display purposes
         display_title = items[0]['title'] if items else canonical_title
         
         for item in items:
