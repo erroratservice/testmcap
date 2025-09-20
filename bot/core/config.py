@@ -52,8 +52,8 @@ class Config:
         cls.MAX_CONCURRENT_TASKS = int(os.getenv('MAX_CONCURRENT_TASKS', '5'))
         cls.DOWNLOAD_DIR = os.getenv('DOWNLOAD_DIR', '/tmp/mediainfo/')
         cls.CMD_SUFFIX = os.getenv('CMD_SUFFIX', '')
-        cls.AUTHOR_NAME = os.getenv('AUTHOR_NAME', 'Media Indexer Bot')
-        cls.AUTHOR_URL = os.getenv('AUTHOR_URL', 'https://t.me/MediaIndexerBot')
+        cls.AUTHOR_NAME = os.getenv('AUTHOR_NAME', 'Media Manager Bot')
+        cls.AUTHOR_URL = os.getenv('AUTHOR_URL', 'https://t.me/MediaManagerBot')
         # Add the new setting
         cls.USE_TVMAZE_TITLES = os.getenv('USE_TVMAZE_TITLES', 'True').lower() == 'true'
 
