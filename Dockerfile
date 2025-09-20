@@ -1,4 +1,9 @@
 FROM python:3.11-slim
+
+# Set the timezone
+ARG TIMEZONE=Asia/Kolkata
+ENV TZ=${TIMEZONE}
+
 RUN apt-get update && apt-get install -y \
     ffmpeg build-essential python3-dev gcc make mediainfo \
     wget \
@@ -6,7 +11,10 @@ RUN apt-get update && apt-get install -y \
     libffi-dev \
     libssl-dev \
     git \
+    # Install tzdata to make timezone changes effective
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 RUN pip install --upgrade pip setuptools wheel
 COPY requirements.txt .
