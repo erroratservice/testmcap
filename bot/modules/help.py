@@ -22,6 +22,7 @@ This bot extracts MediaInfo from video files and creates organized content index
 `/status` - Show current processing progress  
 `/settings` - Configure your preferences
 `/help` - Show this comprehensive guide
+`/findencoders` - Find potential encoders in a channel
 
 ━━━━━━━━━━━━━━━━━━━━
 
@@ -74,6 +75,18 @@ Season 2 (9 Episodes)
 └─ 1080P X265: (GHOST): E01-E04, E06-E10
 Season 3 (7 Episodes)
 └─ 1080P X265: (GHOST): E01-E03, E05-E07, E10
+━━━━━━━━━━━━━━━━━━━━
+
+**Encoder Finding:**
+
+**Usage:**
+• `/findencoders -1001234567890` - Find encoders in a specific channel
+
+**What it does:**
+Scans all files in the channel
+Extracts potential encoder names from filenames
+Lists the potential encoders and their frequency
+
 ━━━━━━━━━━━━━━━━━━━━
 
 **Bulk Processing File Format:**
