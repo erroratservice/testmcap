@@ -17,6 +17,7 @@ from bot.modules.settings import settings_handler, set_setting_callback, receive
 from bot.modules.help import help_handler
 from bot.modules.utils import log_handler, stats_handler
 from bot.core.tasks import ACTIVE_TASKS, USER_STATES
+from bot.modules.findencoders import findencoders_handler
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ async def start_handler(client, message):
 • `/help` - Detailed help
 • `/log` - Get the full bot log file
 • `/stats` - Check server resource usage
+• `/findencoders` - Find potential encoders in a channel
 
 **Ready to index your media content!**"""
     
@@ -77,6 +79,7 @@ def register_handlers():
         MessageHandler(help_handler, filters.command("help") & AuthFilters.authorized),
         MessageHandler(log_handler, filters.command("log") & AuthFilters.authorized),
         MessageHandler(stats_handler, filters.command("stats") & AuthFilters.authorized),
+        MessageHandler(findencoders_handler, filters.command("findencoders") & AuthFilters.authorized),
         # This one generic handler will now catch replies for all settings
         MessageHandler(receive_setting_handler, filters.create(awaiting_input_filter) & AuthFilters.authorized & filters.private)
     ]
