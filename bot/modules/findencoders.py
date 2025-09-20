@@ -17,6 +17,7 @@ async def findencoders_handler(client, message):
     Handler for the /findencoders command.
     Scans a channel for potential new encoder tags and sends the result as a text file.
     """
+    output_file_path = ""
     try:
         if not message.reply_to_message and len(message.command) < 2:
             await send_reply(message, "<b>Usage:</b> `/findencoders <channel_id>` or reply to a message from the channel.")
@@ -35,14 +36,28 @@ async def findencoders_handler(client, message):
 
         potential_encoders = Counter()
         processed_files = 0
+        batch_count = 0
 
         async for message_batch in stream_messages_by_id_batches(channel_id):
+            batch_count += 1
             for msg in message_batch:
                 file_name = getattr(msg.document, 'file_name', getattr(msg.video, 'file_name', None))
                 if file_name:
                     processed_files += 1
                     tags = extract_potential_encoder_tags(file_name)
                     potential_encoders.update(tags)
+
+            # --- PROGRESS UPDATE LOGIC ---
+            # Edit the message every 5 batches to show progress
+            if batch_count % 5 == 0:
+                try:
+                    await status_message.edit_text(
+                        f"<b>🔍 Scanning channel `{channel_id}`...</b>\n\n"
+                        f"Processed <b>{processed_files}</b> files so far."
+                    )
+                except Exception:
+                    # Ignore errors like MessageNotModified
+                    pass
 
         if not potential_encoders:
             await status_message.edit_text(f"✅ **Scan complete.** No new potential encoders found in {processed_files} files.")
