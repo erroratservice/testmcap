@@ -17,7 +17,7 @@ This bot extracts MediaInfo from video files and creates organized content index
 **Available Commands:**
 
 `/start` - Initialize bot and show welcome message
-`/updatemediainfo` - Extract MediaInfo and enhance captions  
+`/updatemediinfo` - Extract MediaInfo and enhance captions  
 `/indexfiles` - Scan and organize channel content
 `/status` - Show current processing progress  
 `/settings` - Configure your preferences
@@ -29,8 +29,8 @@ This bot extracts MediaInfo from video files and creates organized content index
 **MediaInfo Enhancement:**
 
 **Usage:**
-• `/updatemediainfo -1001234567890` - Process specific channel. Use `-f` to retry failed files with a full download, and `-rescan` to process all files again.
-• `/updatemediainfo` (reply to file) - Bulk process channels from a text file.
+• `/updatemediinfo -1001234567890` - Process specific channel. Use `-f` to retry failed files with a full download, and `-rescan` to process all files again.
+• `/updatemediinfo` (reply to file) - Bulk process channels from a text file.
 
 **What it does:**
 - Downloads small chunks for efficient MediaInfo analysis.
@@ -69,16 +69,16 @@ Season 2 (9 Episodes)
 
 ━━━━━━━━━━━━━━━━━━━━
 
-**Encoder Discovery:**
+**Encoder Discovery (Improved!):**
 
 **Usage:**
-• `/findencoders -1001234567890` - Find potential new encoders in a channel.
+• `/findencoders -1001234567890 [-rescan]` - Precisely find new encoders in a channel.
 
 **What it does:**
-- Scans every filename in the specified channel.
-- Filters out all encoders and tags already known to the bot.
-- Generates an `encoders.txt` file listing all potential new encoder tags and how many times they appeared.
-- This helps you discover new tags to add to your list, improving indexing accuracy.
+- **Caption First:** It now uses the first line of the caption as the primary source for the filename.
+- **Precision Scan:** Only analyzes the **last two words** of a filename, where encoder tags are typically found.
+- **Incremental Results:** For large channels, it sends an `encoders.txt` file every **10,000 files** scanned.
+- **`-rescan` Flag:** Use this to force a full re-scan, ignoring any cached data.
 
 ━━━━━━━━━━━━━━━━━━━━
 
