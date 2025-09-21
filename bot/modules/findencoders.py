@@ -44,9 +44,12 @@ async def findencoders_handler(client, message):
             await MongoDB.clear_cached_message_ids(channel_id)
             LOGGER.info(f"Forced rescan for channel {channel_id}. Cache cleared.")
 
-        status_message = await send_reply(message, f"<b>🔍 Precision scanning channel `{channel_id}` for new encoders...</b>")
+        status_message = await send_reply(message, f"<b>🎯 Ultra-precision scan initiated for channel `{channel_id}`...</b>")
 
-        potential_encoders = Counter()
+        # --- NEW: Lists for detailed analysis file ---
+        found_encoders_counter = Counter()
+        scanned_full_names = []
+
         total_processed_files = 0
         batch_count = 0
         update_file_count = 1
@@ -54,8 +57,8 @@ async def findencoders_handler(client, message):
         async for message_batch in stream_messages_by_id_batches(channel_id, force=is_force_rescan):
             batch_count += 1
             for msg in message_batch:
-                # --- NEW LOGIC: Prioritize caption's first line ---
                 text_to_scan = ""
+                # Prioritize caption's first line
                 if msg.caption and '.' in msg.caption.split('\n')[0]:
                     text_to_scan = msg.caption.split('\n')[0]
                 else:
@@ -65,31 +68,38 @@ async def findencoders_handler(client, message):
 
                 if text_to_scan:
                     total_processed_files += 1
-                    tags = extract_potential_encoder_tags(text_to_scan)
-                    potential_encoders.update(tags)
+                    scanned_full_names.append(text_to_scan) # Store full name for analysis
+                    tag = extract_potential_encoder_tag(text_to_scan)
+                    if tag:
+                        found_encoders_counter.update([tag])
 
-                # --- NEW LOGIC: Send incremental update files ---
+                # Send incremental update files
                 if total_processed_files > 0 and total_processed_files % FILES_PER_UPDATE == 0:
-                    await send_update_file(client, message, channel_id, potential_encoders, total_processed_files, update_file_count)
-                    potential_encoders.clear() # Reset for the next batch
+                    await send_analysis_file(client, message, channel_id, found_encoders_counter, scanned_full_names, total_processed_files, update_file_count)
+                    # Reset lists for the next batch
+                    found_encoders_counter.clear()
+                    scanned_full_names = []
                     update_file_count += 1
             
-            # Update status message with progress
             if batch_count % 10 == 0:
                 try:
                     await edit_message(
                         status_message,
-                        f"<b>🔍 Precision scanning channel `{channel_id}`...</b>\n\n"
-                        f"Processed <b>{total_processed_files}</b> files so far."
+                        f"<b>🎯 Ultra-precision scan for `{channel_id}`...</b>\n\n"
+                        f"Files Scanned: <b>{total_processed_files}</b>"
                     )
                 except Exception:
                     pass
 
-        # Send the final file with any remaining encoders
-        if potential_encoders:
-            await send_update_file(client, message, channel_id, potential_encoders, total_processed_files, update_file_count, is_final=True)
-        else:
-            await edit_message(status_message, f"✅ **Scan complete.** No new potential encoders found in {total_processed_files} files.")
+        # Send the final file
+        if found_encoders_counter or scanned_full_names:
+            await send_analysis_file(client, message, channel_id, found_encoders_counter, scanned_full_names, total_processed_files, update_file_count, is_final=True)
+        
+        final_message = f"✅ **Scan complete.**\nProcessed a total of {total_processed_files} files."
+        if update_file_count > 1:
+            final_message += f"\nGenerated {update_file_count} analysis files."
+            
+        await edit_message(status_message, final_message)
 
 
     except Exception as e:
@@ -97,63 +107,76 @@ async def findencoders_handler(client, message):
         await send_reply(message, f"<b>An error occurred:</b> <code>{e}</code>")
 
 
-async def send_update_file(client, message, channel_id, encoders, processed_count, file_num, is_final=False):
-    """Generates and sends an encoder list file."""
-    output_file_path = f"encoders_{channel_id}_part_{file_num}.txt"
+async def send_analysis_file(client, message, channel_id, encoders, full_names, processed_count, file_num, is_final=False):
+    """Generates and sends a detailed analysis file with two sections."""
+    output_file_path = f"encoder_analysis_{channel_id}_part_{file_num}.txt"
     try:
-        file_content = f"# Potential New Encoders Found in Channel: {channel_id}\n"
-        file_content += f"# Part {file_num} - Scanned up to {processed_count} files.\n"
-        file_content += f"# Found {len(encoders)} unique potential encoders in this batch.\n\n"
+        # --- NEW: Two-section format ---
+        file_content = f"# Encoder Analysis for Channel: {channel_id}\n"
+        file_content += f"# Part {file_num} - Based on {processed_count} total scanned files.\n\n"
         
-        for tag, count in encoders.most_common():
-            file_content += f"{tag.strip()}    ({count} times)\n"
+        file_content += "--- Potential Encoders Found ---\n"
+        if encoders:
+            for tag, count in encoders.most_common():
+                file_content += f"{tag.strip():<20} ({count} times)\n"
+        else:
+            file_content += "No new potential encoders found in this batch.\n"
+            
+        file_content += "\n--- Full Names Scanned in This Batch ---\n"
+        if full_names:
+            for name in full_names:
+                file_content += f"{name}\n"
+        else:
+            file_content += "No files processed in this batch.\n"
+
 
         async with aiofiles.open(output_file_path, 'w', encoding='utf-8') as f:
             await f.write(file_content)
         
-        final_caption = f"**📦 Encoder List - Part {file_num}**\nResults after scanning **{processed_count}** files."
+        caption = f"**📦 Encoder Analysis - Part {file_num}**\nCumulative files scanned: **{processed_count}**."
         if is_final:
-            final_caption = f"**✅ Final Encoder List**\nFound a total of **{len(encoders)}** new potential encoders from **{processed_count}** files."
+            caption = f"**✅ Final Encoder Analysis**\nTotal files scanned: **{processed_count}**."
 
         await client.send_document(
             chat_id=message.chat.id,
             document=output_file_path,
-            caption=final_caption
+            caption=caption
         )
     finally:
         if os.path.exists(output_file_path):
             os.remove(output_file_path)
 
 
-def extract_potential_encoder_tags(text):
+def extract_potential_encoder_tag(text):
     """
-    Extracts potential encoder tags by focusing only on the last two words of a filename.
+    Extracts a potential encoder tag by strictly focusing on the last word of a filename.
+    Returns the tag as a string or None if no valid tag is found.
     """
-    # Remove file extension and split into parts
     filename_without_ext = os.path.splitext(text)[0]
     parts = re.split(r'[ ._\[\]()\-]+', filename_without_ext)
     
-    # --- NEW LOGIC: Only consider the last two non-empty parts ---
-    potential_parts = [p for p in parts if p][-2:]
+    # --- NEW: Get the very last non-empty part ---
+    last_part = next((p for p in reversed(parts) if p), None)
     
-    potential_tags = []
+    if not last_part:
+        return None
+            
+    part_upper = last_part.upper()
     
     known_encoders_set = {enc.upper() for enc in KNOWN_ENCODERS}
     ignored_tags_set = {tag.upper() for tag in IGNORED_TAGS}
 
-    for part in potential_parts:
-        part_upper = part.upper()
-        
-        if (
-            part_upper not in known_encoders_set and
-            part_upper not in ignored_tags_set and
-            not part_upper.isdigit() and
-            len(part) > 2 and
-            not re.match(r'S\d{1,2}(E\d{1,3})?$', part_upper) and
-            not re.match(r'\d{3,4}P$', part_upper) and
-            not re.match(r'\d{4}$', part_upper) and # Year
-            not any(audio_codec in part_upper for audio_codec in ['5.1', '7.1', 'DDP', 'EAC3'])
-        ):
-            potential_tags.append(part)
+    # --- NEW: Stricter filtering for the single last word ---
+    if (
+        part_upper not in known_encoders_set and
+        part_upper not in ignored_tags_set and
+        not part_upper.isdigit() and
+        len(last_part) > 2 and
+        not re.match(r'S\d{1,2}(E\d{1,3})?$', part_upper) and
+        not re.match(r'\d{3,4}P$', part_upper) and
+        not re.match(r'\d{4}$', part_upper) and # Year
+        not any(audio_codec in part_upper for audio_codec in ['5.1', '7.1', 'DDP', 'EAC3'])
+    ):
+        return last_part
             
-    return potential_tags
+    return None
