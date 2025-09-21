@@ -82,7 +82,7 @@ async def findencoders_handler(client, message):
                     update_file_count += 1
             
             # Update status message with progress
-            if batch_count % 10 == 0:
+            if batch_count % 5 == 0: # Update every 500 messages
                 try:
                     await edit_message(
                         status_message,
@@ -155,16 +155,23 @@ def extract_potential_encoder_tag(text):
     """
     filename_without_ext = os.path.splitext(text)[0]
     
-    # --- NEW LOGIC: More robust splitting and cleaning ---
-    parts = re.split(r'[ ._\[\]()\-]+', filename_without_ext)
-    
-    last_part = next((p for p in reversed(parts) if p), None)
-    
+    # --- FINAL LOGIC: Find the last delimiter and isolate the word ---
+    last_delimiter_index = -1
+    delimiters = [' ', '.', '-', '[', '(']
+    for char in delimiters:
+        last_delimiter_index = max(last_delimiter_index, filename_without_ext.rfind(char))
+
+    if last_delimiter_index == -1:
+        # If no delimiters, the whole name is the last part (unlikely)
+        last_part = filename_without_ext
+    else:
+        last_part = filename_without_ext[last_delimiter_index + 1:]
+
     if not last_part:
         return None
     
-    # --- CRUCIAL FIX: Strip trailing special characters ---
-    cleaned_part = re.sub(r'[._\[\]()\-]+$', '', last_part)
+    # --- CRUCIAL FIX: Aggressively strip all unwanted characters from the isolated part ---
+    cleaned_part = re.sub(r'[._\[\]()\-]', '', last_part)
     
     if not cleaned_part:
         return None
@@ -174,6 +181,7 @@ def extract_potential_encoder_tag(text):
     known_encoders_set = {enc.upper() for enc in KNOWN_ENCODERS}
     ignored_tags_set = {tag.upper() for tag in IGNORED_TAGS}
 
+    # Final validation checks
     if (
         part_upper not in known_encoders_set and
         part_upper not in ignored_tags_set and
