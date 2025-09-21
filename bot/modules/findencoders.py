@@ -14,7 +14,8 @@ from bot.database.mongodb import MongoDB
 LOGGER = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
-FILES_PER_UPDATE = 1000  # Send an update file after this many files are scanned
+# Set to 1000 for your testing, can be increased to 10000 for production
+FILES_PER_UPDATE = 1000 
 
 async def findencoders_handler(client, message):
     """
@@ -148,34 +149,41 @@ async def send_analysis_file(client, message, channel_id, encoders, full_names, 
 
 def extract_potential_encoder_tag(text):
     """
-    Extracts a potential encoder tag by strictly focusing on the last word of a filename.
+    Extracts a potential encoder tag by strictly focusing on the last word of a filename
+    and cleaning it of trailing special characters.
     Returns the tag as a string or None if no valid tag is found.
     """
     filename_without_ext = os.path.splitext(text)[0]
+    
+    # --- NEW LOGIC: More robust splitting and cleaning ---
     parts = re.split(r'[ ._\[\]()\-]+', filename_without_ext)
     
-    # --- LOGIC: Get the very last non-empty part ---
     last_part = next((p for p in reversed(parts) if p), None)
     
     if not last_part:
         return None
-            
-    part_upper = last_part.upper()
+    
+    # --- CRUCIAL FIX: Strip trailing special characters ---
+    cleaned_part = re.sub(r'[._\[\]()\-]+$', '', last_part)
+    
+    if not cleaned_part:
+        return None
+
+    part_upper = cleaned_part.upper()
     
     known_encoders_set = {enc.upper() for enc in KNOWN_ENCODERS}
     ignored_tags_set = {tag.upper() for tag in IGNORED_TAGS}
 
-    # --- LOGIC: Stricter filtering for the single last word ---
     if (
         part_upper not in known_encoders_set and
         part_upper not in ignored_tags_set and
         not part_upper.isdigit() and
-        len(last_part) > 2 and
+        len(cleaned_part) > 2 and
         not re.match(r'S\d{1,2}(E\d{1,3})?$', part_upper) and
         not re.match(r'\d{3,4}P$', part_upper) and
         not re.match(r'\d{4}$', part_upper) and # Year
         not any(audio_codec in part_upper for audio_codec in ['5.1', '7.1', 'DDP', 'EAC3'])
     ):
-        return last_part
+        return cleaned_part
             
     return None
