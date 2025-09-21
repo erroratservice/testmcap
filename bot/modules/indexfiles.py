@@ -10,7 +10,7 @@ from bot.core.config import Config
 from bot.helpers.message_utils import send_message, send_reply
 from bot.helpers.file_utils import extract_channel_list
 from bot.helpers.indexing_parser import parse_media_info
-from bot.helpers.formatters import format_series_post, format_movie_post
+from bot.helpers.formatters import format_season_post, format_movie_post
 from bot.database.mongodb import MongoDB
 from bot.modules.status import trigger_status_creation
 from bot.core.tasks import ACTIVE_TASKS
@@ -151,6 +151,7 @@ async def process_batch(media_map, channel_id):
     """Aggregates and updates posts for a batch of collected media."""
     for canonical_title, items in media_map.items():
         display_title = items[0]['title'] if items else canonical_title
+        media_type = items[0].get('type') if items else None
         
         for item in items:
             if item.get('type') == 'series':
@@ -161,23 +162,63 @@ async def process_batch(media_map, channel_id):
             elif item.get('type') == 'movie':
                 await MongoDB.add_media_entry(item, item['file_size'], item['msg_id'])
         
-        await update_or_create_post(canonical_title, display_title, channel_id)
+        if media_type == 'series':
+            await update_or_create_season_posts(canonical_title, display_title, channel_id)
+        elif media_type == 'movie':
+            await update_or_create_movie_post(canonical_title, display_title, channel_id)
 
-async def update_or_create_post(canonical_title, display_title, channel_id):
-    """Fetches data and updates or creates a post for a given title."""
+
+async def update_or_create_season_posts(canonical_title, display_title, channel_id):
+    """Fetches data and updates or creates a separate post for each season of a series."""
     try:
-        post_doc = await MongoDB.get_or_create_post(canonical_title, display_title, channel_id)
         media_data = await MongoDB.get_media_data(canonical_title)
-        
-        if not media_data: return
-
-        if 'seasons' in media_data:
-            post_text = format_series_post(display_title, media_data, TOTAL_EPISODES_MAP)
-        elif 'versions' in media_data:
-             post_text = format_movie_post(display_title, media_data)
-        else:
+        if not media_data or 'seasons' not in media_data:
             return
 
+        for season_num_str in sorted(media_data['seasons'].keys(), key=int):
+            season_num = int(season_num_str)
+            season_data = media_data['seasons'][season_num_str]
+
+            # Get or create a specific post tracker for this season
+            post_doc = await MongoDB.get_or_create_season_post(canonical_title, display_title, channel_id, season_num)
+            
+            post_text = format_season_post(display_title, season_num, season_data, TOTAL_EPISODES_MAP)
+
+            if len(post_text) > 4096:
+                post_text = post_text[:4090] + "\n..."
+
+            message_id = post_doc.get('message_id')
+            
+            if message_id:
+                try:
+                    await TgClient.user.edit_message_text(Config.INDEX_CHANNEL_ID, message_id, post_text)
+                    LOGGER.info(f"Updated post for '{display_title}' Season {season_num}.")
+                    continue
+                except Exception:
+                    pass
+            
+            new_post = await TgClient.user.send_message(Config.INDEX_CHANNEL_ID, post_text)
+            if new_post:
+                await MongoDB.update_post_message_id(post_doc['_id'], new_post.id)
+                LOGGER.info(f"Created new post for '{display_title}' Season {season_num}.")
+            await asyncio.sleep(5)
+
+    except Exception as e:
+        LOGGER.error(f"Failed to update season posts for '{display_title}': {e}", exc_info=True)
+
+
+async def update_or_create_movie_post(canonical_title, display_title, channel_id):
+    """Fetches data and updates or creates a single post for a movie."""
+    try:
+        # For movies, the document ID can be simpler as it's a single post per title
+        post_doc = await MongoDB.get_or_create_movie_post(canonical_title, display_title, channel_id)
+        media_data = await MongoDB.get_media_data(canonical_title)
+        
+        if not media_data or 'versions' not in media_data:
+            return
+
+        post_text = format_movie_post(display_title, media_data)
+        
         if len(post_text) > 4096:
             post_text = post_text[:4090] + "\n..."
 
@@ -186,7 +227,7 @@ async def update_or_create_post(canonical_title, display_title, channel_id):
         if message_id:
             try:
                 await TgClient.user.edit_message_text(Config.INDEX_CHANNEL_ID, message_id, post_text)
-                LOGGER.info(f"Updated post for '{display_title}'.")
+                LOGGER.info(f"Updated post for movie '{display_title}'.")
                 return
             except Exception:
                 pass
@@ -194,10 +235,11 @@ async def update_or_create_post(canonical_title, display_title, channel_id):
         new_post = await TgClient.user.send_message(Config.INDEX_CHANNEL_ID, post_text)
         if new_post:
             await MongoDB.update_post_message_id(post_doc['_id'], new_post.id)
-            LOGGER.info(f"Created new post for '{display_title}'.")
+            LOGGER.info(f"Created new post for movie '{display_title}'.")
 
     except Exception as e:
-        LOGGER.error(f"Failed to update post for '{display_title}': {e}")
+        LOGGER.error(f"Failed to update movie post for '{display_title}': {e}", exc_info=True)
+
 
 async def get_target_channels(message):
     """Correctly extracts the channel ID while ignoring known flags."""
