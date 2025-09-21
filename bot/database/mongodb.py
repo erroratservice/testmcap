@@ -90,7 +90,6 @@ class MongoDB:
     async def add_media_entry(cls, parsed_data, file_size, msg_id):
         if cls.media_collection is None: return
         
-        # Use canonical_title for unique identification in the database
         canonical_title = parsed_data['canonical_title']
         display_title = parsed_data['title']
 
@@ -130,7 +129,25 @@ class MongoDB:
             await cls.media_collection.update_one({'_id': canonical_title}, update_query, upsert=True)
             
     @classmethod
-    async def get_or_create_post(cls, canonical_title, display_title, channel_id):
+    async def get_or_create_season_post(cls, canonical_title, display_title, channel_id, season_num):
+        if cls.task_collection is None: return None
+        doc_id = f"post_{channel_id}_{canonical_title.lower().replace(' ', '_')}_s{season_num}"
+        post = await cls.task_collection.find_one({'_id': doc_id})
+        if not post:
+            post = {
+                '_id': doc_id,
+                'canonical_title': canonical_title,
+                'display_title': display_title,
+                'channel_id': channel_id,
+                'type': 'series_season',
+                'season': season_num,
+                'message_id': None
+            }
+            await cls.task_collection.insert_one(post)
+        return post
+
+    @classmethod
+    async def get_or_create_movie_post(cls, canonical_title, display_title, channel_id):
         if cls.task_collection is None: return None
         doc_id = f"post_{channel_id}_{canonical_title.lower().replace(' ', '_')}"
         post = await cls.task_collection.find_one({'_id': doc_id})
@@ -140,6 +157,7 @@ class MongoDB:
                 'canonical_title': canonical_title,
                 'display_title': display_title,
                 'channel_id': channel_id,
+                'type': 'movie',
                 'message_id': None
             }
             await cls.task_collection.insert_one(post)
