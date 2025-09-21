@@ -14,7 +14,7 @@ from bot.database.mongodb import MongoDB
 LOGGER = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
-FILES_PER_UPDATE = 5000  # Send an update file after this many files are scanned
+FILES_PER_UPDATE = 1000  # Send an update file after this many files are scanned
 
 async def findencoders_handler(client, message):
     """
