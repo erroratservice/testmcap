@@ -7,38 +7,42 @@ import logging
 
 LOGGER = logging.getLogger(__name__)
 
-def format_series_post(title, data, total_episodes_map):
-    text = f"**{title}**\n\n"
-    if 'seasons' in data:
-        for season_num_str in sorted(data['seasons'].keys(), key=int):
-            season_num = int(season_num_str)
-            season_data = data['seasons'][season_num_str]
-            expected_eps = total_episodes_map.get(title, {}).get(season_num, len(season_data.get('episodes', [])))
-            text += f"**Season {season_num}** ({expected_eps} Episodes)\n"
+def format_season_post(title, season_num, season_data, total_episodes_map):
+    """Formats the text for a single season post."""
+    expected_eps = total_episodes_map.get(title, {}).get(season_num, len(season_data.get('episodes', [])))
+    text = f"**{title} - Season {season_num}** ({expected_eps} Episodes)\n\n"
+    
+    qualities = season_data.get('qualities', {})
+    sorted_qualities = sorted(qualities.keys())
+
+    for i, quality_key in enumerate(sorted_qualities):
+        quality_data = qualities[quality_key]
+        episodes_by_encoder = quality_data.get('episodes_by_encoder', {})
+        if not episodes_by_encoder: continue
+        
+        # Sort encoders, putting 'Unknown' last
+        sorted_encoders = sorted([enc for enc in episodes_by_encoder.keys() if enc != 'Unknown'])
+        if 'Unknown' in episodes_by_encoder:
+            sorted_encoders.append('Unknown')
+
+        for j, encoder in enumerate(sorted_encoders):
+            # Determine the prefix for the line
+            is_last_quality = (i == len(sorted_qualities) - 1)
+            is_last_encoder = (j == len(sorted_encoders) - 1)
+            prefix = "└─" if is_last_quality and is_last_encoder else "├─"
             
-            qualities = season_data.get('qualities', {})
-            # --- FIX: New logic to format each encoder on a separate line ---
-            for quality_key, quality_data in qualities.items():
-                episodes_by_encoder = quality_data.get('episodes_by_encoder', {})
-                if not episodes_by_encoder: continue
-                
-                sorted_encoders = sorted([enc for enc in episodes_by_encoder.keys() if enc != 'Unknown'])
-                if 'Unknown' in episodes_by_encoder:
-                    sorted_encoders.append('Unknown')
+            ep_range = get_episode_range(sorted(episodes_by_encoder[encoder]))
+            
+            if encoder == 'Unknown':
+                details_line = f"**{quality_key}**: {ep_range}\n"
+            else:
+                details_line = f"**{quality_key}** ({encoder}): {ep_range}\n"
 
-                for i, encoder in enumerate(sorted_encoders):
-                    prefix = "└─" if i == len(sorted_encoders) - 1 and list(qualities.keys())[-1] == quality_key else "├─"
-                    ep_range = get_episode_range(sorted(episodes_by_encoder[encoder]))
-                    
-                    if encoder == 'Unknown':
-                        details_line = f"**{quality_key}**: {ep_range}\n"
-                    else:
-                        details_line = f"**{quality_key}** ({encoder}): {ep_range}\n"
-
-                    text += f"{prefix} {details_line}"
+            text += f"{prefix} {details_line}"
 
     text += f"\nLast Updated: {datetime.now().strftime('%b %d, %Y %I:%M %p IST')}"
     return text
+
 
 def format_movie_post(title, data):
     text = f"**{title}**\n\n"
