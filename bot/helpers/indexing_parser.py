@@ -10,30 +10,62 @@ LOGGER = logging.getLogger(__name__)
 
 # --- FIX: Updated Encoder and Ignore Lists ---
 KNOWN_ENCODERS = {
-    '30NAMA', '4KiNGS', 'AEW', 'AFG', 'AOC', 'AMBER', 'AnimeRG', 'BAE', 'BaoBao',
-    'BBL', 'BETA', 'BHDStudio', 'BigJ0554', 'BMF', 'BON', 'BONE', 'BTN', 'budgetbits',
-    'CBFM', 'CELDRA', 'CKlicious', 'CMRG', 'CODSWALLOP', 'CRiMSON', 'D-Z0N3', 'D3G',
-    'DaddyCooL', 'DARKFLIX', 'dAV1nci', 'DEFLATE', 'DHD', 'DiMEPiECE', 'DiRT',
-    'DOLORES', 'DON', 'DpR', 'DRONES', 'DS4K', 'DUST', 'EDITH', 'ELEANOR', 'ELITE',
-    'EMBER', 'ETHEL', 'ETRG', 'EVO', 'EzzRips', 'FASM', 'Fenix', 'FGT', 'FLUXXED',
-    'FraMeSToR', 'FUM', 'FUSiON', 'G66', 'GalaxyR', 'GalaxyRG', 'GalaxyRG265',
-    'GalaxyTV', 'GHOST', 'ggez', 'glhf', 'GOSSIP', 'HANDJOB', 'HashMiner', 'HDX',
-    'HEEL', 'HETeam', 'heTOrico', 'HEVCBay', 'HiQVE', 'HOMELANDER', 'HQMUX', 'ImE',
-    'INFINITY', 'iON10', 'ION265', 'ivy', 'JFF', 'Joy', 'KaKa', 'KiNGDOM', 'KiNGS',
-    'KITSUNE', 'KOGi', 'KOMPOST', 'KONTRAST', 'Me7alh', 'MeGusta', 'MiNX', 'MkvCage',
-    'MONOLITH', 'MOSTBET', 'MoviesFD', 'MRN', 'MSD', 'mSD', 'MVGroup', 'NGP',
-    'NOVA', 'NoGroup', 'NORDiC', 'NTb', 'NTG', 'NWCHD', 'PAHE', 'Panda', 'PGW',
-    'PHOCIS', 'PMTP', 'PRIMEFIX', 'PROTON', 'PSA', 'pseudo', 'PTP', 'PTer', 'PTNX',
-    'QOQ', 'QxR', 'RARBG', 'RARBGx', 'RAWR', 'RCVR', 'REALiTYTV', 'RGXT', 'rmteam',
-    'r00t', 'ROKiT', 'ROPATA', 'RxB', 'S4KK', 'SAiNT', 'SAON', 'SC4R', 'SDH',
-    'Silence', 'SKG', 'skorpion', 'skyanime', 'Skylane77', 'SMILEY', 'SMURF',
-    'SPARKS', 'spamneggs', 'STAR', 'STC', 'SWAXX', 'SWAXXON', 'SWTYBLZ', 'SYNCOPY',
-    'syncopy', 't3nzin', 'TEPES', 'TERMiNAL', 'TGx', 'TheMoviesBoss', 'Tigole',
-    'TIPEX', 'T0M', 'T0PAZ', 'TombDoc', 'TRUFFLE', 'TURG', 'ULTRAS', 'UnAV1Chain',
-    'UTR', 'V3SP4EV3R', 'ViruseProject', 'VXT', 'Vyndros', 'vyndros', 'W4NK3R',
-    'Walter', 'XoXo', 'XWT', 'y2flix', 'YIFY', 'YSTeam', 'YTS', 'Zero00', 'ZiGZaG',
-    'ZMNT', 'ZTR', 'Černá', 'afm72'
+    'ꙘSŪ☈', '4KHDHUB', '30NAMA', '4KINGS', 'AEW', 'AFG', 'ALL4', 'AMBER', 'AMZN',
+    'ANACKY99', 'ANIMERG', 'ANOZU', 'ANYN', 'AOC', 'APPLE', 'APPLETOR',
+    'ASAP', 'ASIIMOV', 'ATOG', 'AYT36', 'B4ND1T69', 'BAE', 'BAOBAO', 'BBL',
+    'BEECHYBOY', 'BETA', 'BHDSTUDIO', 'BIGJ0554', 'BLESSED', 'BLUESPOTS',
+    'BMF', 'BON', 'BONE', 'BOOMERANG', 'BOOP', 'BONSAIHD', 'BOXEDPOTATOES',
+    'BRAD', 'BRISK', 'BTN', 'BUDGETBITS', 'BUGSFUNNY', 'BUSSY', 'BYM',
+    'B2B', 'CAFFEiNE', 'CAIRN', 'CAKES', 'CASSIDY', 'CBFM', 'CELDRA',
+    'CINEFEEL', 'CKLICIOUS', 'CLASSICS', 'CMRG', 'CODSWALLOP', 'CRIMSON',
+    'CRR', 'CTRLHD', 'CYBERTRON1', 'D-Z0N3', 'D3FIL3R', 'D3G', 'DADDYCOOL',
+    'DARK', 'DARKSABER', 'DARKSOUL', 'DAV1NCI', 'DBMS', 'DE3PM', 'DEFLATE',
+    'DHD', 'DIMEPIECE', 'DIMENSION', 'DIRT', 'DJSF', 'DLNF', 'DMMA',
+    'DOLORES', 'DON', 'DPR', 'DRONES', 'DS4K', 'DUST', 'EDGE2020', 'EDITH',
+    'EGEN', 'ELEANOR', 'ELITE', 'EMBER', 'EMPATHY', 'ENRAV1SH', 'ETHEL',
+    'ETRG', 'EVO', 'EWILLIAN9', 'EXYUSUBS', 'EZZRIPS', 'FAILED', 'FASM',
+    'FENIX', 'FENDT', 'FERENGI', 'FGT', 'FLUX', 'FRATERNITY', 'FULL4MOVIES',
+    'FUM', 'FUSiON', 'G66', 'GALAXYR', 'GALAXYRG', 'GALAXYRG265',
+    'GALAXYTV', 'GARSHASP', 'GHOST', 'GGWP', 'GGEZ', 'GLHF', 'GOSSIP',
+    'HANDJOB', 'HASHMINER', 'HDKING', 'HDRUSH', 'HDT', 'HDX', 'HEEL',
+    'HETEAM', 'HETORICO', 'HEVCBAY', 'HIQVE', 'HODL', 'HOMELANDER', 'HONEY',
+    'HQMUX', 'HWD', 'IDNCREW', 'ILDRAGONERO2', 'IME', 'IMMORTAL',
+    'INFINITY', 'INGOT', 'INFINITE', 'ION10', 'ION265', 'IONICBOY', 'IPSO',
+    'ITSAT', 'IVY', 'JATT', 'JBEE', 'JEBAITED', 'JEW', 'JFF', 'JOAN',
+    'JOEBEE', 'JOYN', 'JRRIP', 'JMUPS', 'KAKA', 'KANNA', 'KAPPA', 'KHN',
+    'KILLER', 'KINGDOM', 'KINGS', 'KIN', 'KITSUNE', 'KOGI', 'KOMPOST',
+    'KONTRAST', 'LAZY', 'LAMA', 'LINKLE', 'LSSJBROLY', 'LVL7T7', 'LVL99',
+    'ME7ALH', 'MEGUSTA', 'MIDWEEK', 'MINX', 'MKVCAGE', 'MKVCINEMAS',
+    'MKVANIME', 'MKG', 'MONOLITH', 'MORPORKIANS', 'MOSTBET', 'MOVIESMOD',
+    'MR265', 'MRMITTENS', 'MRN', 'MSD', 'MUSAFIRBOY', 'MVGROUP', 'NASH',
+    'NAHOM', 'NARMER', 'NEONOIR', 'NEONYX343', 'NGP', 'NHTFS', 'NOGRP',
+    'NOSIVID', 'NOVA', 'NORDIC', 'NTB', 'NTG', 'NTROPIC', 'NWCHD', 'ORENJI',
+    'ORGANIC', 'OTFRICK9', 'PAHE', 'PANDA', 'PANZER', 'PHASE', 'PHDTEAM',
+    'PHOCIS', 'PIR8', 'PIRATES', 'PLAYWEB', 'PLEX101', 'PMZ', 'POD', 'POOTLED',
+    'PORTALGOODS', 'PRIMEWIRE', 'PROB4', 'PROTON', 'PROTOZOAN', 'PSA',
+    'PSEUDO', 'PTP', 'PTER', 'PTNX', 'PUNISHER', 'QOQ', 'QXR', 'R34P3R',
+    'RABIDS', 'RAGEQUIT', 'RARBG', 'RARBGX', 'RAV1NE', 'RAWR', 'RB58',
+    'RCVR', 'REALiTYTV', 'REL1VIN', 'RETR0', 'RGXT', 'RIPRG', 'RMTEAM',
+    'R00T', 'ROKiT', 'ROMA', 'RONIN', 'ROPATA', 'ROSY', 'ROVERX',
+    'ROYALTIES', 'RSG', 'RTN', 'RZEROX', 'S4KK', 'SA89', 'SAINT', 'SAMPA',
+    'SAON', 'SC4R', 'SCONES', 'SDH', 'SEPH1', 'SEV', 'SH0W', 'SHREDDIE',
+    'SHINOBI', 'SHORTBREHD', 'SILENCE', 'SIMKEE', 'SIN', 'SIQ', 'SKGTV',
+    'SKORPION', 'SKYFIRE', 'SKYLAKE', 'SKYLANET77', 'SMILEY', 'SMURF',
+    'SOMNIUM', 'SONARR', 'SORROW', 'SPARKS', 'SPUD17',
+    'SPAMNEGGS', 'SQUALOR', 'STAR', 'STC', 'STREAMION', 'SUCCESSFULCRAB', 'SUJAIDR',
+    'SWAXX', 'SWAXXON', 'SWF', 'SWTYBLZ', 'SYNCOPY', 'SYNC', 'TVSLICES',
+    'TAOE', 'TBMOVIES', 'TCRS', 'TELLY', 'TEPES', 'TERMINAL', 'TG7', 'TBS',
+    'THEBISCUITMAN', 'THECCROW', 'THEDEFILER', 'THEMOVIESBOSS', 'TIGOLE',
+    'TIPEX', 'TIZU', 'TLA', 'TOMMY', 'TOPAZ', 'TOM', 'TOMBOC', 'TOVAR',
+    'TROLLHD', 'TRUMPSUX', 'TRUFFLE', 'TSS', 'TURG', 'TVNATION', 'UKTV',
+    'ULTRAS', 'UNAV1CHAIN', 'UTR', 'V3SP4EV3R', 'VAATHI', 'VARYG',
+    'VIPER', 'VIRUSEPROJECT', 'VOLTAGE', 'VXT', 'VYNDROS', 'W4N70KS',
+    'W4NK3R', 'WADU', 'WALTER', 'WDYM', 'WHITEHAT', 'WILL1869', 'WILTSHIRE',
+    'WOKE', 'WORLDMKV', 'XOXO', 'XWT', 'Y2FLIX', 'YELLOWBIRD', 'YIFY',
+    'YSTEAM', 'YTS', 'ZERO00', 'ZIGZAG', 'ZMNT', 'ZTR', 'ZZZ', 'ČERNÁ',
+    'AFM72'
 }
+
 
 IGNORED_TAGS = {
     'WEB-DL', 'WEBDL', 'WEBRIP', 'WEB', 'BRRIP', 'BLURAY', 'BD', 'BDRIP',
@@ -112,9 +144,21 @@ def parse_media_info(filename, caption=None):
                         break
 
     # --- Step 4: Robust Encoder Detection ---
-    filename_encoder = get_encoder(base_name, words_to_exclude)
-    caption_encoder = safe_caption_info.get('encoder', 'Unknown')
-    final_info['encoder'] = filename_encoder if filename_encoder != 'Unknown' else caption_encoder
+    filename_encoders = get_encoder(base_name, words_to_exclude)
+    caption_encoders = safe_caption_info.get('encoder', 'Unknown')
+    
+    # --- NEW: Combine and format multiple encoders ---
+    combined_encoders = []
+    if filename_encoders and filename_encoders[0] != 'Unknown':
+        combined_encoders.extend(filename_encoders)
+    if caption_encoders != 'Unknown' and caption_encoders not in combined_encoders:
+        combined_encoders.append(caption_encoders)
+
+    if not combined_encoders:
+        final_info['encoder'] = 'Unknown'
+    else:
+        final_info['encoder'] = ', '.join(sorted(list(set(combined_encoders))))
+
 
     # --- Step 5: Finalize and Add Canonical Title ---
     if 'title' in final_info:
@@ -174,7 +218,7 @@ def extract_info_from_text(text):
     
     quality = get_quality(cleaned_text)
     codec = get_codec(cleaned_text)
-    encoder = get_encoder(cleaned_text)
+    encoder = get_encoder(cleaned_text) # Returns a list now
 
     if series_match:
         if is_seasonless:
@@ -197,8 +241,11 @@ def extract_info_from_text(text):
         title, year = movie_match.groups()
         return {'title': title.replace('.', ' ').strip().title(), 'year': int(year), 'quality': quality, 'codec': codec, 'encoder': encoder, 'type': 'movie'}
     
-    if any(val != 'Unknown' for val in [quality, codec, encoder]):
-        return {'quality': quality, 'codec': codec, 'encoder': encoder}
+    # Return encoder as a list even for partial matches
+    encoder_list = get_encoder(cleaned_text)
+    if any(val != 'Unknown' for val in [quality, codec]) or encoder_list[0] != 'Unknown':
+        return {'quality': quality, 'codec': codec, 'encoder': encoder_list}
+
 
     return None
 
@@ -217,18 +264,30 @@ def get_codec(text):
     if re.search(r'\b(AVC|x264|H[\s._]?264)\b', text, re.IGNORECASE): return 'X264'
     return 'Unknown'
 
-def get_encoder(text, words_to_exclude=None):
+def get_encoder(text, words_to_exclude=None, limit=2):
+    """
+    Finds up to a specified limit of known encoders in a text string.
+    Returns a list of found encoders, or ['Unknown'] if none are found.
+    """
     if words_to_exclude is None:
         words_to_exclude = set()
 
     text_without_ext = re.sub(r'\.\w+$', '', text)
-    potential_tags = re.split(r'[ ._\[\]()\-]+', text_without_ext)
     
-    for tag in reversed(potential_tags):
-        if not tag: continue
+    # --- NEW LOGIC: Only scan the last three potential tags ---
+    potential_tags = re.split(r'[ ._\[\]()\-]+', text_without_ext)
+    scan_tags = [tag for tag in potential_tags if tag][-3:]
+    
+    found_encoders = []
+    for tag in reversed(scan_tags):
         tag_upper = tag.upper()
-        # CRITICAL FIX: Do not identify a word as an encoder if it's part of the show/episode title
-        if tag_upper in KNOWN_ENCODERS and tag_upper not in words_to_exclude:
-            return tag_upper
-            
-    return 'Unknown'
+        
+        if tag_upper in KNOWN_ENCODERS and tag_upper not in words_to_exclude and tag_upper not in found_encoders:
+            found_encoders.append(tag_upper)
+            if len(found_encoders) >= limit:
+                break
+    
+    if not found_encoders:
+        return ['Unknown']
+        
+    return sorted(found_encoders)
