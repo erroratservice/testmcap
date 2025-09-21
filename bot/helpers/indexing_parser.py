@@ -10,34 +10,48 @@ LOGGER = logging.getLogger(__name__)
 
 # --- FIX: Updated Encoder and Ignore Lists ---
 KNOWN_ENCODERS = {
-    'GHOST', 'AMBER', 'ELITE', 'BONE', 'CELDRA', 'MEGUSTA', 'EDGE2020', 'SIX',
-    'PAHE', 'DARKFLIX', 'D3G', 'PHOCIS', 'ZTR', 'TIPEX', 'PRIMEFIX',
-    'CODSWALLOP', 'RAWR', 'STAR', 'JFF', 'HEEL', 'CBFM', 'XWT', 'STC',
-    'KITSUNE', 'AFG', 'EDITH', 'MSD', 'SDH', 'AOC', 'G66', 'PSA',
-    'Tigole', 'QxR', 'TEPES', 'VXT', 'Vyndros', 'Telly', 'HQMUX',
-    'W4NK3R', 'BETA', 'BHDStudio', 'FraMeSToR', 'DON', 'DRONES', 'FGT',
-    'SPARKS', 'NoGroup', 'KiNGDOM', 'NTb', 'NTG', 'KOGi', 'SKG', 'EVO',
-    'iON10', 'mSD', 'CMRG', 'KiNGS', 'MiNX', 'FUM', 'GalaxyRG',
-    'GalaxyTV', 'EMBER', 'QOQ', 'BaoBao', 'YTS', 'YIFY', 'RARBG', 'ETRG',
-    'DHD', 'MkvCage', 'RARBGx', 'RGXT', 'TGx', 'SAiNT', 'DpR', 'KaKa',
-    'S4KK', 'D-Z0N3', 'PTer', 'BBL', 'BMF', 'FASM', 'SC4R', '4KiNGS',
-    'HDX', 'DEFLATE', 'TERMiNAL', 'PTP', 'ROKiT', 'SWTYBLZ', 'HOMELANDER',
-    'TombDoc', 'Walter', 'RZEROX', 'V3SP4EV3R',
-    # User additions
-    'Silence', 'ivy', 'DaddyCooL', 'KONTRAST', 'vyndros', 'SAON', 'DUST',
-    'BigJ0554', 'dAV1nci'
+    '30NAMA', '4KiNGS', 'AEW', 'AFG', 'AOC', 'AMBER', 'AnimeRG', 'BAE', 'BaoBao',
+    'BBL', 'BETA', 'BHDStudio', 'BigJ0554', 'BMF', 'BON', 'BONE', 'BTN', 'budgetbits',
+    'CBFM', 'CELDRA', 'CKlicious', 'CMRG', 'CODSWALLOP', 'CRiMSON', 'D-Z0N3', 'D3G',
+    'DaddyCooL', 'DARKFLIX', 'dAV1nci', 'DEFLATE', 'DHD', 'DiMEPiECE', 'DiRT',
+    'DOLORES', 'DON', 'DpR', 'DRONES', 'DS4K', 'DUST', 'EDITH', 'ELEANOR', 'ELITE',
+    'EMBER', 'ETHEL', 'ETRG', 'EVO', 'EzzRips', 'FASM', 'Fenix', 'FGT', 'FLUXXED',
+    'FraMeSToR', 'FUM', 'FUSiON', 'G66', 'GalaxyR', 'GalaxyRG', 'GalaxyRG265',
+    'GalaxyTV', 'GHOST', 'ggez', 'glhf', 'GOSSIP', 'HANDJOB', 'HashMiner', 'HDX',
+    'HEEL', 'HETeam', 'heTOrico', 'HEVCBay', 'HiQVE', 'HOMELANDER', 'HQMUX', 'ImE',
+    'INFINITY', 'iON10', 'ION265', 'ivy', 'JFF', 'Joy', 'KaKa', 'KiNGDOM', 'KiNGS',
+    'KITSUNE', 'KOGi', 'KOMPOST', 'KONTRAST', 'Me7alh', 'MeGusta', 'MiNX', 'MkvCage',
+    'MONOLITH', 'MOSTBET', 'MoviesFD', 'MRN', 'MSD', 'mSD', 'MVGroup', 'NGP',
+    'NOVA', 'NoGroup', 'NORDiC', 'NTb', 'NTG', 'NWCHD', 'PAHE', 'Panda', 'PGW',
+    'PHOCIS', 'PMTP', 'PRIMEFIX', 'PROTON', 'PSA', 'pseudo', 'PTP', 'PTer', 'PTNX',
+    'QOQ', 'QxR', 'RARBG', 'RARBGx', 'RAWR', 'RCVR', 'REALiTYTV', 'RGXT', 'rmteam',
+    'r00t', 'ROKiT', 'ROPATA', 'RxB', 'S4KK', 'SAiNT', 'SAON', 'SC4R', 'SDH',
+    'Silence', 'SKG', 'skorpion', 'skyanime', 'Skylane77', 'SMILEY', 'SMURF',
+    'SPARKS', 'spamneggs', 'STAR', 'STC', 'SWAXX', 'SWAXXON', 'SWTYBLZ', 'SYNCOPY',
+    'syncopy', 't3nzin', 'TEPES', 'TERMiNAL', 'TGx', 'TheMoviesBoss', 'Tigole',
+    'TIPEX', 'T0M', 'T0PAZ', 'TombDoc', 'TRUFFLE', 'TURG', 'ULTRAS', 'UnAV1Chain',
+    'UTR', 'V3SP4EV3R', 'ViruseProject', 'VXT', 'Vyndros', 'vyndros', 'W4NK3R',
+    'Walter', 'XoXo', 'XWT', 'y2flix', 'YIFY', 'YSTeam', 'YTS', 'Zero00', 'ZiGZaG',
+    'ZMNT', 'ZTR', 'Černá', 'afm72'
 }
 
 IGNORED_TAGS = {
     'WEB-DL', 'WEBDL', 'WEBRIP', 'WEB', 'BRRIP', 'BLURAY', 'BD', 'BDRIP',
-    'DVDRIP', 'DVD', 'HDTV', 'PDTV', 'SDTV', 'REMUX', 'UNTOUCHED',
-    'AMZN', 'NF', 'NETFLIX', 'HULU', 'ATVP', 'DSNP', 'MAX', 'CRAV', 'PCOCK',
+    'DVDRIP', 'DVD', 'HDTV', 'PDTV', 'SDTV', 'REMUX', 'UNTOUCHED', 'REPACK',
+    'AMZN', 'NF', 'NETFLIX', 'HULU', 'ATVP', 'DSNP', 'MAX', 'CRAV', 'PCOCK', 'HMAX',
     'RTE', 'EZTV', 'ETTV', 'HDR', 'HDR10', 'DV', 'DOLBY', 'VISION', 'ATMOS',
-    'DTS', 'AAC', 'DDP', 'DDP2', 'DDP5', 'OPUS', 'AC3', '10BIT', 'UHD',
-    'PROPER', 'COMPLETE', 'FULL SERIES', 'INT', 'RIP', 'MULTI', 'GB', 'XVID',
+    'DTS', 'AAC', 'AAC2', 'AAC5', 'DD5', 'DD+2', 'OPUS2', 'Opus51', 'AC3', 'EAC3', '2CH', '6CH',
+    '10BIT', '10Bits', 'UHD', 'PROPER', 'COMPLETE', 'FULL SERIES', 'INT', 'RIP', 'MULTI', 'GB', 'XVID',
+    'EXTENDED', 'UNCUT', 'UNRATED', 'REMASTERED', 'UPSCALED', 'Upscale', 'Uncensored',
+    'HINDI', 'SPANISH', 'JAPANESE', 'FRENCH', 'GERMAN', 'ITALIAN', 'iTALiAN', 'PORTUGUESE',
+    'POLISH', 'TURKISH', 'Tagalog', 'Subs', 'AMZ', 'PCOK', 'ALL4', 'STAN', 'SONY', 'SONYLIV',
+    'ZEE5', 'ROKU', 'WEBTUBE', 'SXM', 'HDCAM', 'HDRip', 'Sample',
+    # File sizes
+    '150MB', '300MB', '350MB', '400MB', '800MB', '900MB', '1400MB', '1600MB', '3500MB', '3999MB',
     # User additions
-    'AMZNWebDL', 'DS4K', 'SDR', 'DDP5.1', '[EZTVx.to]', 'EAC3', 'ESUB'
+    'AMZNWebDL', 'DS4K', 'SDR', 'DDP5.1', '[EZTVx.to]'
 }
+
 
 def _get_canonical_title(title):
     """Creates a normalized title for consistent grouping."""
