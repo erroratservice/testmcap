@@ -17,7 +17,7 @@ This bot extracts MediaInfo from video files and creates organized content index
 **Available Commands:**
 
 `/start` - Initialize bot and show welcome message
-`/updatemediinfo` - Extract MediaInfo and enhance captions  
+`/updatemediainfo` - Extract MediaInfo and enhance captions  
 `/indexfiles` - Scan and organize channel content
 `/status` - Show current processing progress  
 `/settings` - Configure your preferences
@@ -29,8 +29,8 @@ This bot extracts MediaInfo from video files and creates organized content index
 **MediaInfo Enhancement:**
 
 **Usage:**
-• `/updatemediinfo -1001234567890` - Process specific channel. Use `-f` to retry failed files with a full download, and `-rescan` to process all files again.
-• `/updatemediinfo` (reply to file) - Bulk process channels from a text file.
+• `/updatemediainfo -1001234567890` - Process specific channel. Use `-f` to retry failed files with a full download, and `-rescan` to process all files again.
+• `/updatemediainfo` (reply to file) - Bulk process channels from a text file.
 
 **What it does:**
 - Downloads small chunks for efficient MediaInfo analysis.
@@ -47,7 +47,7 @@ Audio: 2 (ENG, HIN)
 
 ━━━━━━━━━━━━━━━━━━━━
 
-**Content Indexing:**
+**Content Indexing (New Per-Season Format!):**
 
 **Usage:**
 • `/indexfiles -1001234567890` - Index a specific channel. Use `-rescan` to clear old data and re-index.
@@ -57,19 +57,19 @@ Audio: 2 (ENG, HIN)
 - Scans all media files in the target channel.
 - Organizes content by title, season, and episode.
 - Groups different quality and codec versions under the same title.
-- Posts a cleanly formatted index to your configured index channel.
+- **Posts a separate, detailed message for each season of a TV show.**
 
-**Example Index Post:**
-Motherland꞉ Fort Salem (2020) -
+**Example Per-Season Index Post:**
+Motherland꞉ Fort Salem - Season 1 (8 Episodes)
 
-Season 1 (8 Episodes)
-└─ 1080P X265 (GHOST): E02, E04-E10
-Season 2 (9 Episodes)
-└─ 1080P X265 (GHOST): E01-E04, E06-E10
+├─ 1080P X265 (GHOST): E02, E04-E10
+└─ 720p X264 (PSA): E01-E08
+
+Last Updated: Sep 21, 2025 10:47 AM IST
 
 ━━━━━━━━━━━━━━━━━━━━
 
-**Encoder Discovery (Improved!):**
+**Encoder Discovery:**
 
 **Usage:**
 • `/findencoders -1001234567890 [-rescan]` - Precisely find new encoders in a channel.
