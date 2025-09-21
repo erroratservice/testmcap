@@ -26,19 +26,18 @@ async def findencoders_handler(client, message):
         is_force_rescan = '-rescan' in message.command
         args = [arg for arg in message.command[1:] if arg != '-rescan']
 
-        if not message.reply_to_message and not args:
-            await send_reply(message, "<b>Usage:</b> `/findencoders <channel_id> [-rescan]` or reply to a message.")
-            return
-
         channel_id = 0
         if message.reply_to_message:
             channel_id = message.reply_to_message.chat.id
-        else:
+        elif args:
             try:
                 channel_id = int(args[0])
             except (ValueError, IndexError):
                 await send_reply(message, "<b>Invalid Channel ID provided.</b>")
                 return
+        else:
+            await send_reply(message, "<b>Usage:</b> `/findencoders <channel_id> [-rescan]` or reply to a message.")
+            return
 
         if is_force_rescan:
             await MongoDB.clear_cached_message_ids(channel_id)
@@ -46,7 +45,7 @@ async def findencoders_handler(client, message):
 
         status_message = await send_reply(message, f"<b>🎯 Ultra-precision scan initiated for channel `{channel_id}`...</b>")
 
-        # --- NEW: Lists for detailed analysis file ---
+        # --- Lists for the detailed analysis file ---
         found_encoders_counter = Counter()
         scanned_full_names = []
 
@@ -58,22 +57,22 @@ async def findencoders_handler(client, message):
             batch_count += 1
             for msg in message_batch:
                 text_to_scan = ""
-                # Prioritize caption's first line
+                # --- LOGIC: Prioritize caption's first line ---
                 if msg.caption and '.' in msg.caption.split('\n')[0]:
-                    text_to_scan = msg.caption.split('\n')[0]
+                    text_to_scan = msg.caption.split('\n')[0].strip()
                 else:
                     file_name = getattr(msg.document, 'file_name', getattr(msg.video, 'file_name', None))
                     if file_name:
-                        text_to_scan = file_name
+                        text_to_scan = file_name.strip()
 
                 if text_to_scan:
                     total_processed_files += 1
-                    scanned_full_names.append(text_to_scan) # Store full name for analysis
+                    scanned_full_names.append(text_to_scan)  # Store full name for analysis
                     tag = extract_potential_encoder_tag(text_to_scan)
                     if tag:
                         found_encoders_counter.update([tag])
 
-                # Send incremental update files
+                # --- LOGIC: Send incremental update files ---
                 if total_processed_files > 0 and total_processed_files % FILES_PER_UPDATE == 0:
                     await send_analysis_file(client, message, channel_id, found_encoders_counter, scanned_full_names, total_processed_files, update_file_count)
                     # Reset lists for the next batch
@@ -81,6 +80,7 @@ async def findencoders_handler(client, message):
                     scanned_full_names = []
                     update_file_count += 1
             
+            # Update status message with progress
             if batch_count % 10 == 0:
                 try:
                     await edit_message(
@@ -91,14 +91,14 @@ async def findencoders_handler(client, message):
                 except Exception:
                     pass
 
-        # Send the final file
+        # Send the final file with any remaining data
         if found_encoders_counter or scanned_full_names:
             await send_analysis_file(client, message, channel_id, found_encoders_counter, scanned_full_names, total_processed_files, update_file_count, is_final=True)
         
         final_message = f"✅ **Scan complete.**\nProcessed a total of {total_processed_files} files."
-        if update_file_count > 1:
-            final_message += f"\nGenerated {update_file_count} analysis files."
-            
+        if update_file_count > 1 or (update_file_count == 1 and (found_encoders_counter or scanned_full_names)):
+             final_message += f"\nGenerated {update_file_count} analysis files."
+
         await edit_message(status_message, final_message)
 
 
@@ -111,7 +111,7 @@ async def send_analysis_file(client, message, channel_id, encoders, full_names, 
     """Generates and sends a detailed analysis file with two sections."""
     output_file_path = f"encoder_analysis_{channel_id}_part_{file_num}.txt"
     try:
-        # --- NEW: Two-section format ---
+        # --- NEW: Two-section format for analysis ---
         file_content = f"# Encoder Analysis for Channel: {channel_id}\n"
         file_content += f"# Part {file_num} - Based on {processed_count} total scanned files.\n\n"
         
@@ -128,7 +128,6 @@ async def send_analysis_file(client, message, channel_id, encoders, full_names, 
                 file_content += f"{name}\n"
         else:
             file_content += "No files processed in this batch.\n"
-
 
         async with aiofiles.open(output_file_path, 'w', encoding='utf-8') as f:
             await f.write(file_content)
@@ -155,7 +154,7 @@ def extract_potential_encoder_tag(text):
     filename_without_ext = os.path.splitext(text)[0]
     parts = re.split(r'[ ._\[\]()\-]+', filename_without_ext)
     
-    # --- NEW: Get the very last non-empty part ---
+    # --- LOGIC: Get the very last non-empty part ---
     last_part = next((p for p in reversed(parts) if p), None)
     
     if not last_part:
@@ -166,7 +165,7 @@ def extract_potential_encoder_tag(text):
     known_encoders_set = {enc.upper() for enc in KNOWN_ENCODERS}
     ignored_tags_set = {tag.upper() for tag in IGNORED_TAGS}
 
-    # --- NEW: Stricter filtering for the single last word ---
+    # --- LOGIC: Stricter filtering for the single last word ---
     if (
         part_upper not in known_encoders_set and
         part_upper not in ignored_tags_set and
