@@ -7,20 +7,27 @@ import aiofiles
 
 from bot.core.client import TgClient
 from bot.helpers.channel_utils import stream_messages_by_id_batches
-from bot.helpers.message_utils import send_reply
-from bot.helpers.indexing_parser import KNOWN_ENCODERS, IGNORED_TAGS, parse_media_info
+from bot.helpers.message_utils import send_reply, edit_message
+from bot.helpers.indexing_parser import KNOWN_ENCODERS, IGNORED_TAGS
+from bot.database.mongodb import MongoDB
 
 LOGGER = logging.getLogger(__name__)
+
+# --- CONFIGURATION ---
+FILES_PER_UPDATE = 10000  # Send an update file after this many files are scanned
 
 async def findencoders_handler(client, message):
     """
     Handler for the /findencoders command.
-    Scans a channel for potential new encoder tags using advanced parsing and sends the result as a text file.
+    Scans a channel for potential new encoder tags with high precision and sends results in batches.
     """
     output_file_path = ""
     try:
-        if not message.reply_to_message and len(message.command) < 2:
-            await send_reply(message, "<b>Usage:</b> `/findencoders <channel_id>` or reply to a message from the channel.")
+        is_force_rescan = '-rescan' in message.command
+        args = [arg for arg in message.command[1:] if arg != '-rescan']
+
+        if not message.reply_to_message and not args:
+            await send_reply(message, "<b>Usage:</b> `/findencoders <channel_id> [-rescan]` or reply to a message.")
             return
 
         channel_id = 0
@@ -28,103 +35,118 @@ async def findencoders_handler(client, message):
             channel_id = message.reply_to_message.chat.id
         else:
             try:
-                channel_id = int(message.command[1])
+                channel_id = int(args[0])
             except (ValueError, IndexError):
                 await send_reply(message, "<b>Invalid Channel ID provided.</b>")
                 return
 
-        status_message = await send_reply(message, f"<b>🔍 Smart scanning channel `{channel_id}` for new encoder tags...</b>")
+        if is_force_rescan:
+            await MongoDB.clear_cached_message_ids(channel_id)
+            LOGGER.info(f"Forced rescan for channel {channel_id}. Cache cleared.")
+
+        status_message = await send_reply(message, f"<b>🔍 Precision scanning channel `{channel_id}` for new encoders...</b>")
 
         potential_encoders = Counter()
-        processed_files = 0
+        total_processed_files = 0
         batch_count = 0
+        update_file_count = 1
 
-        async for message_batch in stream_messages_by_id_batches(channel_id):
+        async for message_batch in stream_messages_by_id_batches(channel_id, force=is_force_rescan):
             batch_count += 1
             for msg in message_batch:
-                file_name = getattr(msg.document, 'file_name', getattr(msg.video, 'file_name', None))
-                if file_name:
-                    processed_files += 1
-                    # --- IMPROVEMENT: Use the full parsing logic to get the exclusion set ---
-                    info = parse_media_info(file_name)
-                    words_to_exclude = set()
-                    if info and info.get('title'):
-                        # Re-create the exclusion set from the official title words
-                        for word in re.split(r'[\s._-]+', info['title'].upper()):
-                            words_to_exclude.add(word)
+                # --- NEW LOGIC: Prioritize caption's first line ---
+                text_to_scan = ""
+                if msg.caption and '.' in msg.caption.split('\n')[0]:
+                    text_to_scan = msg.caption.split('\n')[0]
+                else:
+                    file_name = getattr(msg.document, 'file_name', getattr(msg.video, 'file_name', None))
+                    if file_name:
+                        text_to_scan = file_name
 
-                    tags = extract_potential_encoder_tags(file_name, words_to_exclude)
+                if text_to_scan:
+                    total_processed_files += 1
+                    tags = extract_potential_encoder_tags(text_to_scan)
                     potential_encoders.update(tags)
 
-            # Update status message periodically
+                # --- NEW LOGIC: Send incremental update files ---
+                if total_processed_files > 0 and total_processed_files % FILES_PER_UPDATE == 0:
+                    await send_update_file(client, message, channel_id, potential_encoders, total_processed_files, update_file_count)
+                    potential_encoders.clear() # Reset for the next batch
+                    update_file_count += 1
+            
+            # Update status message with progress
             if batch_count % 10 == 0:
                 try:
-                    await status_message.edit_text(
-                        f"<b>🔍 Smart scanning channel `{channel_id}`...</b>\n\n"
-                        f"Processed <b>{processed_files}</b> files."
+                    await edit_message(
+                        status_message,
+                        f"<b>🔍 Precision scanning channel `{channel_id}`...</b>\n\n"
+                        f"Processed <b>{total_processed_files}</b> files so far."
                     )
                 except Exception:
-                    pass  # Ignore errors like MessageNotModified
+                    pass
 
-        if not potential_encoders:
-            await status_message.edit_text(f"✅ **Scan complete.** No new potential encoders found in {processed_files} files.")
-            return
+        # Send the final file with any remaining encoders
+        if potential_encoders:
+            await send_update_file(client, message, channel_id, potential_encoders, total_processed_files, update_file_count, is_final=True)
+        else:
+            await edit_message(status_message, f"✅ **Scan complete.** No new potential encoders found in {total_processed_files} files.")
 
-        # Prepare the text file content
-        file_content = f"# Potential New Encoders Found in Channel: {channel_id}\n"
-        file_content += f"# Total Files Scanned: {processed_files}\n"
-        file_content += f"# Found {len(potential_encoders)} unique potential encoders.\n\n"
-        
-        for tag, count in potential_encoders.most_common():
-            file_content += f"{tag.strip()}    ({count} times)\n"
-            
-        output_file_path = f"encoders_{channel_id}.txt"
-        
-        async with aiofiles.open(output_file_path, 'w', encoding='utf-8') as f:
-            await f.write(file_content)
-
-        await client.send_document(
-            chat_id=message.chat.id,
-            document=output_file_path,
-            caption=f"**✅ Smart Scan Complete!**\nFound **{len(potential_encoders)}** potential new encoders from **{processed_files}** files."
-        )
-        
-        await status_message.delete()
 
     except Exception as e:
         LOGGER.error(f"Error in findencoders_handler: {e}", exc_info=True)
         await send_reply(message, f"<b>An error occurred:</b> <code>{e}</code>")
+
+
+async def send_update_file(client, message, channel_id, encoders, processed_count, file_num, is_final=False):
+    """Generates and sends an encoder list file."""
+    output_file_path = f"encoders_{channel_id}_part_{file_num}.txt"
+    try:
+        file_content = f"# Potential New Encoders Found in Channel: {channel_id}\n"
+        file_content += f"# Part {file_num} - Scanned up to {processed_count} files.\n"
+        file_content += f"# Found {len(encoders)} unique potential encoders in this batch.\n\n"
+        
+        for tag, count in encoders.most_common():
+            file_content += f"{tag.strip()}    ({count} times)\n"
+
+        async with aiofiles.open(output_file_path, 'w', encoding='utf-8') as f:
+            await f.write(file_content)
+        
+        final_caption = f"**📦 Encoder List - Part {file_num}**\nResults after scanning **{processed_count}** files."
+        if is_final:
+            final_caption = f"**✅ Final Encoder List**\nFound a total of **{len(encoders)}** new potential encoders from **{processed_count}** files."
+
+        await client.send_document(
+            chat_id=message.chat.id,
+            document=output_file_path,
+            caption=final_caption
+        )
     finally:
         if os.path.exists(output_file_path):
             os.remove(output_file_path)
 
 
-def extract_potential_encoder_tags(filename, words_to_exclude=None):
+def extract_potential_encoder_tags(text):
     """
-    Extracts potential encoder tags from a filename, excluding known, ignored, and title-related tags.
+    Extracts potential encoder tags by focusing only on the last two words of a filename.
     """
-    if words_to_exclude is None:
-        words_to_exclude = set()
-
-    filename_without_ext = os.path.splitext(filename)[0]
+    # Remove file extension and split into parts
+    filename_without_ext = os.path.splitext(text)[0]
     parts = re.split(r'[ ._\[\]()\-]+', filename_without_ext)
+    
+    # --- NEW LOGIC: Only consider the last two non-empty parts ---
+    potential_parts = [p for p in parts if p][-2:]
     
     potential_tags = []
     
     known_encoders_set = {enc.upper() for enc in KNOWN_ENCODERS}
     ignored_tags_set = {tag.upper() for tag in IGNORED_TAGS}
 
-    for part in reversed(parts):
-        if not part:
-            continue
-            
+    for part in potential_parts:
         part_upper = part.upper()
         
-        # --- IMPROVEMENT: Check against the dynamic exclusion set from the parser ---
         if (
             part_upper not in known_encoders_set and
             part_upper not in ignored_tags_set and
-            part_upper not in words_to_exclude and # The crucial new check
             not part_upper.isdigit() and
             len(part) > 2 and
             not re.match(r'S\d{1,2}(E\d{1,3})?$', part_upper) and
